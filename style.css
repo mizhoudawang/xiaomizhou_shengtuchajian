@@ -1,0 +1,709 @@
+/* 角色一致性生图 —— 悬浮窗样式（跟随酒馆主题变量，取不到就用深色兜底） */
+
+#cig-root {
+    --cig-bg: var(--SmartThemeBlurTintColor, #1e1e24);
+    --cig-fg: var(--SmartThemeBodyColor, #e6e6ea);
+    --cig-muted: var(--SmartThemeQuoteColor, #9aa0aa);
+    --cig-border: var(--SmartThemeBorderColor, #3a3a45);
+    --cig-accent: var(--SmartThemeEmColor, #5b9dd9);
+    --cig-field: rgba(0, 0, 0, 0.28);
+    --cig-head-bg: rgba(255, 255, 255, 0.05);
+    --cig-btn-bg: rgba(255, 255, 255, 0.07);
+    --cig-soft-bg: rgba(255, 255, 255, 0.04);
+    --cig-shadow: 0 10px 34px rgba(0, 0, 0, 0.6);
+    --cig-launcher-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+
+/* ---- 主题：默认「跟随酒馆」= 上面的变量；下面几套是写死的配色 ---- */
+#cig-root[data-cig-theme="black"] {
+    --cig-bg: #000000; --cig-fg: #ececec; --cig-muted: #9b9b9b; --cig-border: #2f2f2f;
+    --cig-accent: #6aa9e0; --cig-field: rgba(255, 255, 255, 0.06);
+    --cig-head-bg: rgba(255, 255, 255, 0.06); --cig-btn-bg: rgba(255, 255, 255, 0.09);
+    --cig-soft-bg: rgba(255, 255, 255, 0.05);
+}
+
+#cig-root[data-cig-theme="gray"] {
+    --cig-bg: #2b2d33; --cig-fg: #e8e9ee; --cig-muted: #a2a6b0; --cig-border: #454851;
+    --cig-accent: #7fb2e5; --cig-field: rgba(0, 0, 0, 0.22);
+    --cig-head-bg: rgba(255, 255, 255, 0.06); --cig-btn-bg: rgba(255, 255, 255, 0.08);
+    --cig-soft-bg: rgba(255, 255, 255, 0.05);
+}
+
+#cig-root[data-cig-theme="light"] {
+    --cig-bg: #e9eaee; --cig-fg: #1b1b21; --cig-muted: #5c606a; --cig-border: #c3c6cf;
+    --cig-accent: #2f6fb5; --cig-field: #ffffff;
+    --cig-head-bg: rgba(0, 0, 0, 0.05); --cig-btn-bg: rgba(0, 0, 0, 0.06);
+    --cig-soft-bg: rgba(0, 0, 0, 0.04);
+    --cig-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    --cig-launcher-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+#cig-root[data-cig-theme="white"] {
+    --cig-bg: #ffffff; --cig-fg: #14141a; --cig-muted: #5a5e69; --cig-border: #d6d8df;
+    --cig-accent: #2f6fb5; --cig-field: #f5f6f8;
+    --cig-head-bg: rgba(0, 0, 0, 0.04); --cig-btn-bg: rgba(0, 0, 0, 0.05);
+    --cig-soft-bg: rgba(0, 0, 0, 0.03);
+    --cig-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
+    --cig-launcher-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+}
+
+#cig-root[data-cig-theme="sepia"] {
+    --cig-bg: #f3ead9; --cig-fg: #33291d; --cig-muted: #6d5f4b; --cig-border: #d8c9ae;
+    --cig-accent: #8a6a35; --cig-field: #fbf5e9;
+    --cig-head-bg: rgba(0, 0, 0, 0.045); --cig-btn-bg: rgba(0, 0, 0, 0.05);
+    --cig-soft-bg: rgba(0, 0, 0, 0.035);
+    --cig-shadow: 0 10px 30px rgba(80, 60, 20, 0.28);
+    --cig-launcher-shadow: 0 4px 14px rgba(80, 60, 20, 0.22);
+}
+
+#cig-launcher {
+    position: fixed;
+    right: 18px;
+    bottom: 96px;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    cursor: pointer;
+    z-index: 30000;
+    background: var(--cig-bg, #1e1e24);
+    border: 1px solid var(--cig-border, #3a3a45);
+    box-shadow: var(--cig-launcher-shadow);
+    user-select: none;
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+#cig-launcher:hover {
+    transform: scale(1.08);
+    box-shadow: var(--cig-shadow);
+}
+
+#cig-panel {
+    position: fixed;
+    right: 18px;
+    bottom: 152px;
+    width: 560px;                 /* 功能多了，默认放宽（右下角还能拖大小） */
+    min-width: 360px;
+    min-height: 300px;
+    max-width: calc(100vw - 24px);
+    max-height: min(88vh, calc(100vh - 30px));
+    display: flex;
+    flex-direction: column;
+    z-index: 30001;
+    background: var(--cig-bg, #1e1e24);
+    color: var(--cig-fg, #e6e6ea);
+    border: 1px solid var(--cig-border, #3a3a45);
+    border-radius: 10px;
+    box-shadow: var(--cig-shadow);
+    overflow: hidden;
+    font-size: 13px;
+}
+
+#cig-panel.cig-hidden {
+    display: none;
+}
+
+#cig-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 10px;
+    cursor: move;
+    background: var(--cig-head-bg);
+    border-bottom: 1px solid var(--cig-border, #3a3a45);
+    user-select: none;
+    touch-action: none; /* 触屏拖动必需，否则会被滚动手势吃掉 */
+}
+
+#cig-header .cig-grip {
+    opacity: 0.45;
+    letter-spacing: -2px;
+    font-size: 14px;
+}
+
+#cig-header .cig-title {
+    font-weight: 600;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cig-hbtn {
+    cursor: pointer;
+    padding: 0 5px;
+    opacity: 0.7;
+    line-height: 1;
+}
+
+.cig-hbtn:hover {
+    opacity: 1;
+}
+
+/* 折叠：只保留标题栏 */
+#cig-panel.cig-collapsed #cig-body {
+    display: none;
+}
+
+#cig-body {
+    padding: 16px 18px;
+    /* 关键三行：不写 min-height:0 的话，flex 子项默认不肯缩到内容以下，
+       面板一长就整块顶出屏幕 —— 表现就是「滑不动」。 */
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;   /* 滑到底不要带着整页一起滚 */
+    display: flex;
+    flex-direction: column;
+    gap: 14px;                   /* 分类之间留白，别挤在一起 */
+    scrollbar-gutter: stable;    /* 滚动条出现时不挤动内容 */
+}
+
+/* 这一条是滚动能不能用的关键：column flex 容器里的子项默认 flex-shrink:1，
+   放不下时会被「压扁」而不是溢出 —— 于是内容永远刚好装得下，滚动条就成了摆设。
+   让它们不许缩，内容超出后才会真正触发 #cig-body 的滚动。 */
+#cig-body > * {
+    flex: 0 0 auto;
+    min-height: 0;
+}
+
+/* 滚动条本身：加宽、圆角、可抓（浅色主题下也看得见） */
+#cig-body::-webkit-scrollbar,
+.cig-fan-list::-webkit-scrollbar,
+#cig-panel textarea::-webkit-scrollbar {
+    width: 12px;
+}
+
+#cig-body::-webkit-scrollbar-track,
+.cig-fan-list::-webkit-scrollbar-track {
+    background: var(--cig-soft-bg);
+    border-radius: 6px;
+}
+
+#cig-body::-webkit-scrollbar-thumb,
+.cig-fan-list::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--cig-fg, #e6e6ea) 38%, transparent);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: 8px;
+}
+
+#cig-body::-webkit-scrollbar-thumb:hover,
+.cig-fan-list::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--cig-fg, #e6e6ea) 62%, transparent);
+    background-clip: padding-box;
+}
+
+/* range 滑块：轨道和把手都做大一点，浅色主题下也能看清 */
+#cig-panel input[type="range"] {
+    width: 100%;
+    box-sizing: border-box;
+    height: 22px;
+    margin: 2px 0;
+    cursor: pointer;
+    touch-action: none;          /* 触屏上拖动滑块别被页面手势抢走 */
+    accent-color: var(--cig-accent, #5b9dd9);
+}
+
+#cig-panel input[type="number"] {
+    width: 68px;
+    box-sizing: border-box;
+    background: var(--cig-field);
+    color: inherit;
+    border: 1px solid var(--cig-border, #3a3a45);
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-family: inherit;
+    font-size: 12px;
+}
+
+.cig-label {
+    font-size: 12px;
+    color: var(--cig-muted, #9aa0aa);
+    margin-top: 2px;
+}
+
+.cig-hint {
+    font-size: 11px;
+    color: var(--cig-muted, #9aa0aa);
+    opacity: 0.85;
+}
+
+.cig-sub {
+    margin-top: 10px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--cig-border, #3a3a45);
+    font-size: 13px;
+    font-weight: 600;
+    opacity: 0.9;
+}
+
+/* ---- 同人角色库 ---- */
+.cig-fan-bar {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+}
+
+.cig-fan-bar input[type="text"] {
+    flex: 2 1 auto;
+}
+
+.cig-fan-bar select {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.cig-fan-refbox {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 8px;
+    margin: 6px 0;
+    border: 1px solid var(--cig-border, #3a3a45);
+    border-radius: 6px;
+}
+
+.cig-fan-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 260px;   /* 内层列表别抢太多高度，留给整块滚动 */
+    overflow-y: auto;
+}
+
+.cig-fan-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 6px 8px;
+    border: 1px solid var(--cig-border, #3a3a45);
+    border-radius: 6px;
+}
+
+.cig-fan-info {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.cig-fan-name {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.cig-fan-sub {
+    font-size: 11px;
+    opacity: 0.75;
+    word-break: break-all;
+}
+
+.cig-fan-note {
+    font-size: 11px;
+    opacity: 0.6;
+    margin-top: 2px;
+}
+
+.cig-fan-acts {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 0 0 auto;
+}
+
+.cig-fan-acts .cig-btn {
+    font-size: 11px;
+    padding: 3px 6px;
+    white-space: nowrap;
+}
+
+#cig-panel textarea,
+#cig-panel input[type="text"],
+#cig-panel select {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--cig-field);
+    color: inherit;
+    border: 1px solid var(--cig-border, #3a3a45);
+    border-radius: 6px;
+    padding: 7px 8px;
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+}
+
+#cig-panel textarea:focus,
+#cig-panel input[type="text"]:focus,
+#cig-panel select:focus {
+    outline: none;
+    border-color: var(--cig-accent, #5b9dd9);
+}
+
+.cig-charbar {
+    font-size: 12px;
+    color: var(--cig-muted, #9aa0aa);
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: var(--cig-soft-bg);
+    border: 1px solid var(--cig-border, #3a3a45);
+}
+
+.cig-charbar b {
+    color: var(--cig-fg, #e6e6ea);
+}
+
+#cig-free-box,
+#cig-gen-box,
+#cig-player-box,
+#cig-quick-box,
+#cig-auto-box,
+#cig-cast-box,
+#cig-manual-box,
+#cig-settings {
+    border: 1px solid var(--cig-border, #3a3a45);
+    border-radius: 6px;
+    padding: 2px 8px 6px;
+    background: rgba(91, 157, 217, 0.07);
+}
+
+/* 绘图区：纯提示词入口，给它一个更醒目的底色 */
+#cig-free-box {
+    background: rgba(91, 157, 217, 0.18);
+    border-color: rgba(91, 157, 217, 0.55);
+}
+
+#cig-free-log:not(:empty) {
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 5px;
+    padding: 5px 7px;
+}
+
+#cig-free-ref-preview {
+    display: none;
+    max-width: 100%;
+    max-height: 180px;
+    border-radius: 6px;
+    margin: 2px auto 0;
+    object-fit: contain;
+}
+
+#cig-free-ref-info:not(:empty) {
+    word-break: break-all;
+}
+
+#cig-gen-box {
+    background: rgba(91, 157, 217, 0.13);
+}
+
+/* 玩家主角换个色，和 NPC 明显区分 */
+#cig-player-box {
+    background: rgba(214, 168, 92, 0.12);
+    border-color: rgba(214, 168, 92, 0.5);
+}
+
+#cig-quick-box {
+    background: rgba(168, 130, 214, 0.12);
+    border-color: rgba(168, 130, 214, 0.45);
+}
+
+#cig-auto-box {
+    background: rgba(127, 209, 139, 0.09);
+}
+
+#cig-manual-box,
+#cig-settings {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+#cig-autolog:not(:empty) {
+    color: #7fd18b;
+}
+
+.cig-lookbox {
+    border-top: 1px dashed var(--cig-border, #3a3a45);
+    margin-top: 4px;
+    padding-top: 6px;
+}
+
+#cig-look-preview {
+    white-space: pre-wrap;
+    line-height: 1.5;
+    font-size: 11px;
+    max-height: 92px;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 5px;
+    padding: 5px 7px;
+    margin-top: 3px;
+}
+
+#cig-panel textarea:disabled,
+#cig-panel input:disabled,
+#cig-panel select:disabled {
+    opacity: 0.45;
+}
+
+#cig-panel details summary {
+    cursor: pointer;
+    color: var(--cig-muted, #9aa0aa);
+    font-size: 12px;
+    padding: 4px 0;
+    list-style: none;
+}
+
+#cig-panel details summary::-webkit-details-marker {
+    display: none;
+}
+
+#cig-panel details summary::before {
+    content: '▸ ';
+}
+
+#cig-panel details[open] summary::before {
+    content: '▾ ';
+}
+
+.cig-row {
+    display: flex;
+    gap: 8px;
+}
+
+.cig-btn {
+    flex: 1;
+    cursor: pointer;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--cig-border, #3a3a45);
+    background: var(--cig-btn-bg);
+    color: inherit;
+    font-size: 13px;
+    transition: filter 0.12s ease;
+}
+
+.cig-btn:hover:not(:disabled) {
+    filter: brightness(1.25);
+}
+
+.cig-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.cig-primary {
+    background: var(--cig-accent, #5b9dd9);
+    border-color: var(--cig-accent, #5b9dd9);
+    color: #08131c;
+    font-weight: 600;
+}
+
+.cig-wide {
+    width: 100%;
+    flex: none;
+}
+
+.cig-set {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 6px 0 2px;
+}
+
+.cig-check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+#cig-denoise {
+    width: 100%;
+}
+
+#cig-status {
+    min-height: 18px;
+    font-size: 12px;
+    color: var(--cig-muted, #9aa0aa);
+    line-height: 1.45;
+    word-break: break-word;
+}
+
+#cig-status.cig-ok {
+    color: #7fd18b;
+}
+
+#cig-status.cig-err {
+    color: #e2807f;
+}
+
+/* ---- 分区折叠：顶层条目标题要醒目，嵌套的（备用）保持小字灰色。
+        这两条必须排在 #cig-panel details summary 之后，靠源码顺序覆盖。 ---- */
+#cig-panel #cig-body > details > summary {
+    font-size: 15px;          /* 大分类：字再大一号 */
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    color: var(--cig-fg, #e6e6ea);
+    padding: 9px 0;
+}
+
+#cig-panel #cig-body > details > summary .cig-hint {
+    font-weight: 400;
+    font-size: 11px;
+    margin-left: 4px;
+}
+
+/* 收起时给个淡淡的悬停反馈，让人知道能点开 */
+#cig-panel #cig-body > details > summary:hover {
+    filter: brightness(1.25);
+}
+
+#cig-panel #cig-body > details:not([open]) {
+    padding-bottom: 2px;
+}
+
+/* 顶层分类之间加一条分隔线，视觉上不再糊成一团 */
+#cig-panel #cig-body > details + details,
+#cig-panel #cig-body > details + div,
+#cig-panel #cig-body > div + details {
+    border-top: 1px solid var(--cig-border, #3a3a45);
+    padding-top: 8px;
+}
+
+/* 右下角拖拽改大小 */
+#cig-resize {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 18px;
+    height: 18px;
+    cursor: nwse-resize;
+    opacity: 0.5;
+    touch-action: none;
+    background: linear-gradient(135deg, transparent 0 46%, var(--cig-border, #3a3a45) 46% 54%, transparent 54%),
+                linear-gradient(135deg, transparent 0 68%, var(--cig-border, #3a3a45) 68% 76%, transparent 76%);
+}
+
+#cig-resize:hover {
+    opacity: 0.95;
+}
+
+/* ---- 词库 ---- */
+#cig-lex-box {
+    background: rgba(91, 217, 199, 0.08);
+    border-color: rgba(91, 217, 199, 0.35);
+}
+
+#cig-lex-file {
+    display: none;
+}
+
+#cig-lex-cat,
+#cig-lex-sub {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+#cig-size-w,
+#cig-size-h {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+#cig-size-mp {
+    width: 100%;
+}
+
+#cig-lex-stat:not(:empty) {
+    line-height: 1.45;
+    word-break: break-word;
+}
+
+#cig-lex-results {
+    max-height: 190px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: rgba(0, 0, 0, 0.18);
+    border-radius: 6px;
+    padding: 4px;
+}
+
+#cig-lex-results:empty {
+    display: none;
+}
+
+.cig-lex-item {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 4px 6px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.cig-lex-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.cig-lex-item b {
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.cig-lex-item span {
+    color: #7fd1c7;
+    font-family: ui-monospace, Consolas, monospace;
+    flex: 1;
+    word-break: break-all;
+}
+
+.cig-lex-item i {
+    font-style: normal;
+    font-size: 10px;
+    color: var(--cig-muted, #9aa0aa);
+    white-space: nowrap;
+}
+
+#cig-lex-check:not(:empty) {
+    font-size: 11px;
+    color: #d6a85c;
+    line-height: 1.45;
+    word-break: break-word;
+}
+
+#cig-lex-box code {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 0 3px;
+    border-radius: 3px;
+    font-size: 10px;
+}
+
+/* ---- 出镜人物勾选 ---- */
+.cig-pick {
+    max-height: 116px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid var(--cig-border, #3a3a45);
+    border-radius: 6px;
+    padding: 4px 6px;
+}
+
+.cig-pick-item {
+    font-size: 12px;
+    padding: 1px 0;
+}
+
+.cig-pick-item input {
+    flex: none;
+}

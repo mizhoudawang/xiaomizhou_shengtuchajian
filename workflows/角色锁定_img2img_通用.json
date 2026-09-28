@@ -1,0 +1,83 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "%model%"
+    },
+    "_meta": { "title": "载入模型（在酒馆的 Model 下拉里选）" }
+  },
+  "2": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "%prompt%",
+      "clip": ["1", 1]
+    },
+    "_meta": { "title": "正向提示词（插件会把角色外观和服装拼进来）" }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "%negative_prompt%",
+      "clip": ["1", 1]
+    },
+    "_meta": { "title": "负向提示词" }
+  },
+  "4": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "%char_ref%"
+    },
+    "_meta": { "title": "角色头像参考图（需在酒馆里配置 char_ref 占位符）" }
+  },
+  "5": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": ["4", 0],
+      "upscale_method": "lanczos",
+      "width": "%width%",
+      "height": "%height%",
+      "crop": "center"
+    },
+    "_meta": { "title": "缩放到目标尺寸" }
+  },
+  "6": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": ["5", 0],
+      "vae": ["1", 2]
+    },
+    "_meta": { "title": "参考图编码为初始 latent（img2img）" }
+  },
+  "7": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["1", 0],
+      "positive": ["2", 0],
+      "negative": ["3", 0],
+      "latent_image": ["6", 0],
+      "seed": "%seed%",
+      "steps": "%steps%",
+      "cfg": "%scale%",
+      "sampler_name": "%sampler%",
+      "scheduler": "%scheduler%",
+      "denoise": "%denoise%"
+    },
+    "_meta": { "title": "KSampler（denoise 决定像参考图还是像提示词）" }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["7", 0],
+      "vae": ["1", 2]
+    },
+    "_meta": { "title": "VAE 解码" }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": ["8", 0],
+      "filename_prefix": "SillyTavern"
+    },
+    "_meta": { "title": "保存图片" }
+  }
+}

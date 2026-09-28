@@ -1,0 +1,18 @@
+# 词库数据（几十 MB，而且来自各人的 SD-WebUI，不要提交）
+tags/
+
+# 酒馆的设置与备份（含个人数据）
+settings.json
+settings.json.bak*
+secrets.json
+*.bak
+
+# 临时/测试文件
+_*
+_staging/
+_backup_*/
+_rolltest/
+
+# 系统
+Thumbs.db
+.DS_Store

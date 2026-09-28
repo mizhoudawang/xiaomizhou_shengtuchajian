@@ -1,0 +1,92 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "miaomiaoRealskin_anima13.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": { "title": "Anima DiT (Miaomiao RealSkin Anima1.3)" }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_06b_base.safetensors",
+      "type": "stable_diffusion",
+      "device": "default"
+    },
+    "_meta": { "title": "Text Encoder (Qwen3-0.6B)" }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "_meta": { "title": "VAE (Qwen Image VAE)" }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "%prompt%",
+      "clip": ["2", 0]
+    },
+    "_meta": { "title": "Positive Prompt" }
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "%negative_prompt%",
+      "clip": ["2", 0]
+    },
+    "_meta": { "title": "Negative Prompt" }
+  },
+  "6": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": "%width%",
+      "height": "%height%",
+      "batch_size": 1
+    },
+    "_meta": { "title": "Empty Latent (1MP)" }
+  },
+  "10": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "lora_name": "%lora_name%",
+      "strength_model": "%lora_weight%",
+      "model": ["1", 0]
+    },
+    "_meta": { "title": "LoRA（名字与强度由插件填；关掉开关时会换回不带 LoRA 的工作流）" }
+  },
+  "7": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": "%seed%",
+      "steps": 30,
+      "cfg": 4.0,
+      "sampler_name": "er_sde",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": ["10", 0],
+      "positive": ["4", 0],
+      "negative": ["5", 0],
+      "latent_image": ["6", 0]
+    },
+    "_meta": { "title": "KSampler (Anima recipe: er_sde / simple / 30 / CFG 4)" }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["7", 0],
+      "vae": ["3", 0]
+    },
+    "_meta": { "title": "VAE Decode" }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "SillyTavern_LoRA",
+      "images": ["8", 0]
+    },
+    "_meta": { "title": "Save Image" }
+  }
+}

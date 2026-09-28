@@ -1,0 +1,102 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "miaomiaoRealskin_anima13.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": { "title": "Anima DiT (Miaomiao RealSkin) — 换模型改这里" }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_06b_base.safetensors",
+      "type": "stable_diffusion",
+      "device": "default"
+    },
+    "_meta": { "title": "Text Encoder (Qwen3-0.6B)" }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "_meta": { "title": "VAE (Qwen Image VAE)" }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "%prompt%",
+      "clip": ["2", 0]
+    },
+    "_meta": { "title": "Positive Prompt" }
+  },
+  "5": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "%negative_prompt%",
+      "clip": ["2", 0]
+    },
+    "_meta": { "title": "Negative Prompt" }
+  },
+  "6": {
+    "class_type": "VHS_LoadImagePath",
+    "inputs": {
+      "image": "%free_ref%",
+      "custom_width": 0,
+      "custom_height": 0
+    },
+    "_meta": { "title": "参考图（%free_ref% = 插件填的绝对路径，需要 VideoHelperSuite）" }
+  },
+  "7": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": ["6", 0],
+      "upscale_method": "lanczos",
+      "width": "%width%",
+      "height": "%height%",
+      "crop": "center"
+    },
+    "_meta": { "title": "缩放到画布尺寸（宽高由酒馆/插件给）" }
+  },
+  "8": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": ["7", 0],
+      "vae": ["3", 0]
+    },
+    "_meta": { "title": "编码成潜空间" }
+  },
+  "9": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": "%seed%",
+      "steps": "%steps%",
+      "cfg": "%scale%",
+      "sampler_name": "er_sde",
+      "scheduler": "simple",
+      "denoise": "%denoise%",
+      "model": ["1", 0],
+      "positive": ["4", 0],
+      "negative": ["5", 0],
+      "latent_image": ["8", 0]
+    },
+    "_meta": { "title": "KSampler（denoise 越低越像原图）" }
+  },
+  "10": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["9", 0],
+      "vae": ["3", 0]
+    },
+    "_meta": { "title": "VAE Decode" }
+  },
+  "11": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "zhihuiji_i2i",
+      "images": ["10", 0]
+    },
+    "_meta": { "title": "Save Image" }
+  }
+}

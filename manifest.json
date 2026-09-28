@@ -1,0 +1,12 @@
+{
+    "display_name": "角色一致性生图 (Character Image Gen)",
+    "loading_order": 100,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "小米粥大王",
+    "version": "1.0.0",
+    "homePage": "https://github.com/mizhoudawang/xiaomizhou_shengtuchajian",
+    "auto_update": true
+}
