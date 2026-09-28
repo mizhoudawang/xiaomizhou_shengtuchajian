@@ -1,3 +1,9 @@
+/*!
+ * CharImageGen · 角色一致性生图（SillyTavern 扩展）
+ * Copyright (c) 2026 小米粥大王
+ * MIT License — 完整协议见仓库根目录 LICENSE 文件
+ * 仓库: https://github.com/mizhoudawang/xiaomizhou_shengtuchajian
+ */
 /**
  * 画师画风面板（独立模块，和同人角色库一个套路）
  * 只改提示词，不动模型权重 —— 所以和 LoRA 互不干扰，可以叠加。

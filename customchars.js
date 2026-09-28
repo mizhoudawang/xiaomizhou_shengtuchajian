@@ -1,3 +1,9 @@
+/*!
+ * CharImageGen · 角色一致性生图（SillyTavern 扩展）
+ * Copyright (c) 2026 小米粥大王
+ * MIT License — 完整协议见仓库根目录 LICENSE 文件
+ * 仓库: https://github.com/mizhoudawang/xiaomizhou_shengtuchajian
+ */
 /**
  * 自定义角色：模板 / 解析 / 导出（纯模块，不碰酒馆，方便单测）
  * ------------------------------------------------------------------

@@ -1,3 +1,8 @@
+/*!
+ * CharImageGen · 角色一致性生图（SillyTavern 扩展）
+ * Copyright (c) 2026 小米粥大王
+ * MIT License — 完整协议见仓库根目录 LICENSE 文件
+ */
 /* 角色一致性生图 —— 悬浮窗样式（跟随酒馆主题变量，取不到就用深色兜底） */
 
 #cig-root {
