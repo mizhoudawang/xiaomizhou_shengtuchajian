@@ -1996,6 +1996,8 @@ function buildUI() {
 这种才收成「名字·2」。只是长得像的两套衣服（连衣裙 vs 和服）不会合并，
 只是措辞不同或只换了个小首饰的也不会重复存一条。选「跟随剧情」则不锁定服装。</div>
 
+        <div class="cig-hint">想<b>自己加一个角色</b>？用下面「同人角色」区块里的「<b>✍ 自建角色（手动填写）</b>」：填名字 + 外观 tag，点「保存并建档」就进库了。</div>
+
         <details id="cig-manual-box">
           <summary>备用：手动提取（会调一次 API）</summary>
           <div class="cig-set">

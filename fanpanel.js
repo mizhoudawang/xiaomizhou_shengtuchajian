@@ -284,7 +284,7 @@ export function mountFanPanel(ctx) {
         $root.append(cus);
 
     // ------------------------------------------------ 自建角色：手动填 → 保存并建档
-    const fbox = $('<details id="cig-cus-form-box"></details>');
+    const fbox = $('<details id="cig-cus-form-box" open></details>');
     fbox.append($('<summary></summary>').text('✍ 自建角色（手动填写 → 保存并建档）'));
     fbox.append($('<div class="cig-hint"></div>').text(
         '填好下面的字段点「保存并建档」：角色会进「我的自定义角色」，同时生成角色档案 + 标志性服装。'
