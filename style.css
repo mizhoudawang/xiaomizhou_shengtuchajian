@@ -226,6 +226,20 @@
     overflow: hidden;
 }
 
+/* 自动生图那块新加的输入框/提示，绝不能再撑破面板（滑块=滚动条，之前就是这么坏的） */
+#cig-autogen-manual {
+    width: 100%;
+    box-sizing: border-box;
+    max-height: 120px;
+    overflow-y: auto;
+    resize: vertical;
+}
+
+#cig-autogen-manual-msg {
+    max-height: 60px;
+    overflow-y: auto;
+}
+
 #cig-body > * {
     flex: 0 0 auto;
     min-height: 0;

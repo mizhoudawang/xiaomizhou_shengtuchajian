@@ -30,6 +30,7 @@ import {
 import { mountFanPanel } from './fanpanel.js';
 import { buildArtistBlock } from './artists.js';
 import { classifyOutfit, groupByGarment, primaryGarmentOf } from './outfits.js';
+import { extractPrompts, planPrompts, looksLikeProse } from './autogen.js';
 import { mountArtistPanel } from './artistpanel.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
 import {
@@ -156,6 +157,9 @@ const DEFAULTS = {
     seedFixed: false,       // 勾了就一律用 seedValue，不再按角色算
     seedValue: 0,           // 固定种子的值
     lastSeed: -1,           // 上次出图真正用的种子（-1 = 随机）
+    autoIllustrate: true,   // 盯住消息里的提示词块，自动按它出图（世界书负责出块，插件负责出图）
+    autoIllustrateMax: 2,   // 一条消息最多自动出几张
+    autoIllustrateDelay: 2500,  // 等消息流结束多久再动手（毫秒）
     characters: {},
     outfits: {},
     player: { identity: '', outfit: '' },
@@ -828,6 +832,92 @@ function renderSeedHint() {
     else if (s.useCharSeed) eff = '按角色算 ' + seedFor(resolvedName()) + '（要自己定就勾「固定种子」）';
     else eff = '每次随机';
     $('#cig-seed-hint').text('本次会用：' + eff + '　·　上次出图用了：' + (s.lastSeed >= 0 ? s.lastSeed : '随机'));
+}
+
+
+// ---------------------------------------------------------------- 自动出图
+// 世界书让模型在回复里写提示词块（image###…### / <!--img-prompt="…"-->），
+// 我们盯着新消息，把块里的提示词直接交给酒馆出图 —— 走的是和手动「绘图区」同一条路（已验证可用），
+// 所以不依赖 auto-illustrator 的格式与状态。
+let autoRunning = false;
+let autoQueue = [];          // 待出图的提示词（先进先出，保证顺序）
+let autoLastPrompts = [];
+
+/** 把自动生图的进度/错误写成一条聊天里的系统消息 —— 面板关着也能看见。 */
+async function cigLog(text) {
+    const msg = String(text || '').slice(0, 400);
+    if (!msg) return;
+    try {
+        const cmd = SlashCommandParser.commands['echo'];
+        if (cmd && typeof cmd.callback === 'function') { await cmd.callback({}, msg); return; }
+    } catch (e) { /* 下面兜底 */ }
+    try {
+        const ctx = getContext();
+        ctx.chat.push({ name: 'CharImageGen', is_user: false, is_system: true, send_date: Date.now(), mes: msg, extra: { cigLog: true } });
+        if (typeof ctx.saveChat === 'function') await ctx.saveChat();
+        else if (typeof saveChat === 'function') await saveChat();
+    } catch (e) { console.warn('[CharImageGen] 写日志失败', e); }
+}
+
+async function autoPump() {
+    if (autoRunning) return;
+    autoRunning = true;
+    try {
+        while (autoQueue.length) {
+            const text = autoQueue.shift();
+            setStatus('自动生图：正在出第 1 张（队列还剩 ' + autoQueue.length + ' 张）：' + text.slice(0, 40) + '…', 'cig-ok');
+            await cigLog('【自动生图】开始出图：' + text.slice(0, 60));
+            try {
+                await generateFree(text);
+                setStatus('自动生图 ✅ 已完成：' + text.slice(0, 50) + (text.length > 50 ? '…' : ''), 'cig-ok');
+                await cigLog('【自动生图】✅ 已提交：' + text.slice(0, 60));
+            } catch (e) {
+                const why = (e && e.message ? e.message : String(e));
+                setStatus('自动生图 ❌ 失败：' + why, 'cig-err');
+                await cigLog('【自动生图】❌ 失败：' + why);
+            }
+            await new Promise(r => setTimeout(r, 1200));
+        }
+    } finally {
+        autoRunning = false;
+    }
+}
+
+/** 从最近几条消息里找一条"有提示词、还没出过图"的 AI 消息。 */
+async function autoIllustrateLatest(force = false) {
+    const s = S();
+    let chat = [];
+    try { chat = getContext().chat || []; } catch { return false; }
+    for (let i = chat.length - 1; i >= 0 && i >= chat.length - 6; i--) {
+        const m = chat[i];
+        if (!m || m.is_user || m.is_system) continue;
+        const text = String(m.mes || '');
+        if (!text || text.startsWith('[自动生图]')) continue;
+        if (!extractPrompts(text).length) continue;
+        const key = String(m.send_date || '') + '#' + i + '#' + text.length;
+        if (!force) {
+            if ((s.autoDoneKeys || []).includes(key)) return false;   // 这条已经出过了
+            s.autoDoneKeys = [...(s.autoDoneKeys || []).slice(-40), key];
+            save();
+        }
+        await autoIllustrate(text);
+        return true;
+    }
+    return false;
+}
+
+async function autoIllustrate(text) {
+    const s = S();
+    if (!s.autoIllustrate) return;
+    const all = extractPrompts(text);
+    if (!all.length) return;
+    const plan = planPrompts(all, { max: s.autoIllustrateMax, last: autoLastPrompts });
+    if (!plan.prompts.length) return;
+    autoLastPrompts = plan.prompts.slice();
+    // 不阻塞、不丢：按出现顺序排进队列，正在出图时后面来的就排在后面
+    autoQueue.push(...plan.prompts);
+    setStatus('自动生图：检测到 ' + plan.prompts.length + ' 条提示词，已排队（共 ' + autoQueue.length + ' 张待出）', 'cig-ok');
+    autoPump();
 }
 
 function seedFor(name) {
@@ -2097,6 +2187,23 @@ function buildUI() {
         <div class="cig-hint">提示词开头的质量词（masterpiece 之类）请在酒馆自己的
           Image Generation → Common Prompt Prefix 里设置，插件会自动沿用，不用在这里填。</div>
 
+        <label class="cig-check"><input id="cig-autogen" type="checkbox" /> 自动生图（盯住消息里的提示词块，按它出图）</label>
+        <div class="cig-row">
+          <label class="cig-label" for="cig-autogen-max">每条消息最多出</label>
+          <input id="cig-autogen-max" type="number" min="1" max="6" step="1" />
+          <label class="cig-label" for="cig-autogen-delay">等消息结束</label>
+          <input id="cig-autogen-delay" type="number" min="500" max="20000" step="500" />
+          <span class="cig-hint">毫秒</span>
+        </div>
+        <div class="cig-label">手动出图<span class="cig-hint">（把提示词粘进来，直接送去出图 —— 不依赖任何格式）</span></div>
+        <textarea id="cig-autogen-manual" rows="3" placeholder="粘贴提示词：英文 tag 或自然语言描写都行"></textarea>
+        <div class="cig-row">
+          <button id="cig-autogen-go" class="cig-btn cig-primary">就按这段文字出图</button>
+          <button id="cig-autogen-pick" class="cig-btn">从最近消息里抓一段</button>
+        </div>
+        <div id="cig-autogen-manual-msg" class="cig-hint"></div>
+        <div class="cig-hint">世界书负责让模型写出提示词块（tag 列表或自然语言描写都行），这里负责把块里的提示词送去出图。
+          用了这个就可以把 auto-illustrator 关掉（避免两边都出图）。</div>
         <label class="cig-check"><input id="cig-charseed" type="checkbox" /> 按角色固定 seed（<span id="cig-seedval">—</span>）</label>
         <div class="cig-row">
           <label class="cig-check"><input id="cig-seedfix" type="checkbox" /> 固定种子</label>
@@ -2391,6 +2498,9 @@ function buildUI() {
     $('#cig-quality').val(s.quality);
     $('#cig-mode').val(s.mode);
     $('#cig-charseed').prop('checked', !!s.useCharSeed);
+    $('#cig-autogen').prop('checked', s.autoIllustrate !== false);
+    $('#cig-autogen-max').val(s.autoIllustrateMax || 2);
+    $('#cig-autogen-delay').val(s.autoIllustrateDelay || 2500);
     $('#cig-seedfix').prop('checked', !!s.seedFixed);
     $('#cig-seed-input').val(s.seedValue);
     $('#cig-usellm').prop('checked', !!s.useLlm);
@@ -2938,6 +3048,44 @@ function buildUI() {
     $('#cig-usellm').on('change', function () { s.useLlm = !!this.checked; save(); });
     $('#cig-mode').on('change', function () { s.mode = String(this.value); save(); renderCast(); });
     $('#cig-charseed').on('change', function () { s.useCharSeed = !!this.checked; save(); renderCast(); });
+    $('#cig-autogen').on('change', function () {
+        s.autoIllustrate = !!this.checked;
+        save();
+        setStatus(s.autoIllustrate ? '已开启自动生图：以后按消息里的提示词块自动出图' : '已关闭自动生图', 'cig-ok');
+    });
+    $('#cig-autogen-max').on('input', function () { s.autoIllustrateMax = Math.max(1, Math.min(6, Number(this.value) || 2)); save(); });
+    const autoMsg = (t, k) => { $('#cig-autogen-manual-msg').text(t); setStatus(t, k || 'cig-ok'); };
+    $('#cig-autogen-go').on('click', async () => {
+        const text = String($('#cig-autogen-manual').val() || '').trim();
+        if (!text) { autoMsg('先粘一段提示词进来', 'cig-err'); return; }
+        autoMsg('正在出图：' + text.slice(0, 50) + '…');
+        if (document.getElementById('cig-autogen-go')) document.getElementById('cig-autogen-go').disabled = true;
+        try {
+            await generateFree(text);
+            autoMsg('✅ 已提交出图：' + text.slice(0, 60) + (text.length > 60 ? '…' : ''), 'cig-ok');
+        } catch (e) {
+            autoMsg('❌ 出图失败：' + (e && e.message ? e.message : String(e)), 'cig-err');
+        } finally {
+            if (document.getElementById('cig-autogen-go')) document.getElementById('cig-autogen-go').disabled = false;
+        }
+    });
+    $('#cig-autogen-pick').on('click', () => {
+        let chat = [];
+        try { chat = getContext().chat || []; } catch {}
+        for (let i = chat.length - 1; i >= 0; i--) {
+            const m = chat[i];
+            if (!m || m.is_user || m.is_system) continue;
+            const t = String(m.mes || '');
+            if (!t) continue;
+            const list = extractPrompts(t);
+            if (list.length) { $('#cig-autogen-manual').val(list[0]); autoMsg('已抓取最近一条提示词（共 ' + list.length + ' 条），可以直接点左边出图', 'cig-ok'); return; }
+            // 连外壳都没认出来：把整条消息里最像提示词的一行塞进去，让你手动改
+            const line = t.split(/\n/).map(s => s.trim()).filter(s => s.length > 20 && /[a-zA-Z]/.test(s))[0] || '';
+            if (line) { $('#cig-autogen-manual').val(line); autoMsg('没认出外壳，先把最近这条消息里的一段文字塞进来了（你可以自己改）', 'cig-err'); return; }
+        }
+        autoMsg('最近几条消息里没找到可用文字', 'cig-err');
+    });
+    $('#cig-autogen-delay').on('input', function () { s.autoIllustrateDelay = Math.max(500, Number(this.value) || 2500); save(); });
     $('#cig-seedfix').on('change', function () {
         s.seedFixed = !!this.checked;
         if (s.seedFixed && !(Number(s.seedValue) >= 0)) s.seedValue = 0;
@@ -3391,6 +3539,49 @@ function buildUI() {
         eventSource.on(event_types.CHAT_CHANGED, refreshChar);
         eventSource.on(event_types.CHARACTER_EDITED, refreshChar);
         eventSource.on(event_types.MESSAGE_RECEIVED, handleMessage);
+    // 关键：必须在「这次生成彻底结束」之后再出图。
+    // 之前挂在 MESSAGE_RECEIVED 上，消息还在流式输出的时候就动手，酒馆会拒掉（绘世里看不到任何请求）。
+    let cigBusyGenerating = false;
+    eventSource.on(event_types.GENERATION_STARTED, () => { cigBusyGenerating = true; });
+    eventSource.on(event_types.GENERATION_ENDED, () => {
+        cigBusyGenerating = false;
+        const s = S();
+        if (!s.autoIllustrate) return;
+        const wait = Math.max(500, Number(s.autoIllustrateDelay) || 2500);
+        setTimeout(() => { autoIllustrateLatest().catch(() => {}); }, wait);
+    });
+    eventSource.on(event_types.MESSAGE_RECEIVED, () => {
+        const s = S();
+        if (!s.autoIllustrate) return;
+        if (cigBusyGenerating) return;                       // 还在写正文，先别抢
+        const wait = Math.max(500, Number(s.autoIllustrateDelay) || 2500);
+        setTimeout(() => { if (!cigBusyGenerating) autoIllustrateLatest().catch(() => {}); }, wait);
+    });
+    // 双保险：每 3 秒自己扫一遍最新消息（有些生成方式不发 MESSAGE_RECEIVED，只靠事件会漏）
+    let autoWatchKey = '';
+    setInterval(async () => {
+        try {
+            const s = S();
+            if (!s.autoIllustrate) return;
+            if (cigBusyGenerating) return;                   // 正文还没写完，等它
+            const chat = (getContext().chat) || [];
+            const m = chat[chat.length - 1];
+            if (!m || m.is_user || m.is_system) return;
+            const text = String(m.mes || '');
+            if (!text) return;
+            const key = String(m.send_date || '') + '#' + text.length;
+            const list = extractPrompts(text);
+            if (key !== autoWatchKey) {
+                autoWatchKey = key;
+                $('#cig-autogen-manual-msg').text('自动扫描：最新一条 AI 消息 ' + text.length + ' 字符，认出 ' + list.length + ' 条提示词' + (list.length ? '，已交队列' : '（没认出外壳，可点「从最近消息里抓一段」看看）'));
+            }
+            if (!list.length) return;
+            if ((s.autoDoneKeys || []).includes(key)) return;
+            s.autoDoneKeys = [...(s.autoDoneKeys || []).slice(-40), key];
+            save();
+            await autoIllustrate(text);
+        } catch (e) { console.warn('[CharImageGen] 自动扫描出错', e); }
+    }, 3000);
         eventSource.on(event_types.MESSAGE_EDITED, handleMessage);
         eventSource.on(event_types.MESSAGE_SWIPED, handleMessage);
         // 外观锁：拦生图提示词，所有生图路径统一生效
@@ -3780,6 +3971,7 @@ async function generateFree(prompt, useRef = false) {
             setComfyPlaceholder('free_ref', '');
         }
         setLoraPlaceholders();
+        if (s.seedBefore === undefined) s.seedBefore = sd.seed;   // 出图后要还原，别让原生生图跟着用固定种子
         const fixedSeedFree = seedFixedValue();
         sd.seed = fixedSeedFree !== null ? fixedSeedFree : -1;   // 绘图区默认随机；勾了「固定种子」就照用
         s.lastSeed = sd.seed;
@@ -3788,6 +3980,7 @@ async function generateFree(prompt, useRef = false) {
     const cmd = SlashCommandParser.commands['imagine'];
     if (!cmd || typeof cmd.callback !== 'function') {
         if (keep) { sd.comfy_workflow = keep.workflow; sd.denoising_strength = keep.denoise; }
+            if (s.seedBefore !== undefined) { sd.seed = s.seedBefore; delete s.seedBefore; try { $('#sd_seed').val(sd.seed); } catch {} }
         throw new Error('找不到 /imagine 命令 —— 请确认「Image Generation」扩展已启用，且 Source 选了 ComfyUI');
     }
     skipLookOnce = true;
@@ -3797,7 +3990,9 @@ async function generateFree(prompt, useRef = false) {
         skipLookOnce = false;
         if (keep) {
             sd.comfy_workflow = keep.workflow;
+            if (s.seedBefore !== undefined) { sd.seed = s.seedBefore; delete s.seedBefore; try { $('#sd_seed').val(sd.seed); } catch {} }
             sd.denoising_strength = keep.denoise;
+            if (s.seedBefore !== undefined) { sd.seed = s.seedBefore; delete s.seedBefore; try { $('#sd_seed').val(sd.seed); } catch {} }
             setComfyPlaceholder('free_ref', '');   // 用完就摘掉，别留给别的生图
             save();
         }
@@ -3815,6 +4010,7 @@ async function generate(prompt) {
         const wf = s.mode === 'free' ? workflowFor(false) : s.lockWorkflow;
         if (wf) sd.comfy_workflow = wf;
         sd.denoising_strength = s.mode === 'free' ? 1.0 : Number(s.denoise);
+        if (s.seedBefore === undefined) s.seedBefore = sd.seed;   // 出图后要还原，别让原生生图跟着用固定种子
         const fixedSeed = seedFixedValue();
         sd.seed = fixedSeed !== null ? fixedSeed : (s.useCharSeed ? seedFor(resolvedName()) : -1);
         s.lastSeed = sd.seed;
