@@ -12,7 +12,7 @@
  */
 import { FANCHARS, FANCHAR_SERIES, fanIdentityTags } from './fanchars.js';
 import {
-    parseCustomChars, mergeCustomChars, toExportText, TEMPLATE_OBJECT, AI_PROMPT_TEXT,
+    parseCustomChars, mergeCustomChars, toExportText, TEMPLATE_OBJECT, AI_PROMPT_TEXT, normalizeEntry,
 } from './customchars.js';
 
 const PER_PAGE = 24;
@@ -106,9 +106,12 @@ export function mountFanPanel(ctx) {
             // 原作里就是小孩的角色：建档时把标记一起写进去，裸体兜底会自动跳过她们
             ...(c.minor ? { minor: true } : {}),
             source: `同人库·${c.series}`,
-            outfit: s.characters[c.zh]?.outfit && s.outfits[s.characters[c.zh].outfit] ? s.characters[c.zh].outfit : c.outfitName,
+            outfit: c.outfit
+                ? (s.characters[c.zh]?.outfit && s.outfits[s.characters[c.zh].outfit] ? s.characters[c.zh].outfit : c.outfitName)
+                : '',
         };
-        if (!s.outfits[c.outfitName]) s.outfits[c.outfitName] = { tags: c.outfit, base: c.outfitName };
+        // 自建角色可以不填服装：那就只建外观档，不往服装库里塞空条目
+        if (c.outfit && !s.outfits[c.outfitName]) s.outfits[c.outfitName] = { tags: c.outfit, base: c.outfitName };
         s.fanSavedIds = [...new Set([...(s.fanSavedIds || []), c.id])];
         // 顺手把名字映射补上（词库不认识中文名，映射让提示词里的「胡桃」变成 booru tag）
         if (!s.fanNameMap || typeof s.fanNameMap !== 'object') s.fanNameMap = {};
@@ -279,6 +282,102 @@ export function mountFanPanel(ctx) {
             cus.append($('<div class="cig-hint"></div>').text('问题：' + s.fanPreviewErrors.join('；')));
         }
         $root.append(cus);
+
+    // ------------------------------------------------ 自建角色：手动填 → 保存并建档
+    const fbox = $('<details id="cig-cus-form-box"></details>');
+    fbox.append($('<summary></summary>').text('✍ 自建角色（手动填写 → 保存并建档）'));
+    fbox.append($('<div class="cig-hint"></div>').text(
+        '填好下面的字段点「保存并建档」：角色会进「我的自定义角色」，同时生成角色档案 + 标志性服装。'
+        + '带 * 的是必填；中文名 + 外观标签填了就能用。也可以先「只保存不建档」，之后在列表里点「一键建档」。'));
+    const fgrid = $('<div class="cig-cf-grid"></div>');
+    const mkF = (id, label, ph) => {
+        const w = $('<label class="cig-cf-field"></label>');
+        w.append($('<span class="cig-cf-label"></span>').text(label));
+        w.append($('<input type="text" />').attr('id', 'cig-cf-' + id).attr('placeholder', ph || ''));
+        return w;
+    };
+    fgrid.append(mkF('zh', '中文名 *', '例如：小樱'));
+    fgrid.append(mkF('booru', 'booru 角色 tag', '例如：sakura (custom)　留空自动处理'));
+    fgrid.append(mkF('series', '作品', '例如：我的原创　留空 = 自定义'));
+    fgrid.append(mkF('seriestag', '作品 tag', '例如：my original　留空就不拼作品名'));
+    fgrid.append(mkF('aliases', '别名（逗号分隔）', '小樱、Sakura'));
+    fgrid.append(mkF('outfitname', '标志性服装名', '留空自动叫「标志性服装·名字」'));
+    fbox.append(fgrid);
+    fbox.append($('<div class="cig-cf-label"></div>').text('外观特征 *（英文 tag，必填）'));
+    fbox.append($('<textarea rows="2"></textarea>').attr('id', 'cig-cf-identity')
+        .attr('placeholder', '1girl, solo, long pink hair, green eyes, small breasts'));
+    fbox.append($('<div class="cig-cf-label"></div>').text('标志性服装标签（可选）'));
+    fbox.append($('<textarea rows="2"></textarea>').attr('id', 'cig-cf-outfit')
+        .attr('placeholder', 'pink dress, white thighhighs, brown loafers'));
+    fbox.append($('<input type="text" />').attr('id', 'cig-cf-note').attr('placeholder', '备注（可选）'));
+    fbox.append($('<select id="cig-cf-rating">'
+        + '<option value="sfw">sfw（一般向）</option>'
+        + '<option value="nsfw">nsfw（成人向）</option>'
+        + '<option value="galgame">galgame</option></select>'));
+    fbox.append($('<label class="cig-check"></label>').append(
+        $('<input type="checkbox" id="cig-cf-minor" />'),
+        $('<span></span>').text(' 这是未成年角色（锁定：永不套用裸露兜底）')));
+    const fMsg = $('<div id="cig-cf-msg" class="cig-hint"></div>');
+    const fRow = $('<div class="cig-row"></div>');
+
+    const fVals = () => {
+        const v = id => String($('#cig-cf-' + id).val() || '').trim();
+        return {
+            zh: v('zh'), booru: v('booru'), series: v('series'), seriesTag: v('seriestag'),
+            identity: v('identity'), outfitName: v('outfitname'), outfit: v('outfit'),
+            aliases: v('aliases'), note: v('note'),
+            rating: String($('#cig-cf-rating').val() || 'sfw'),
+            minor: !!$('#cig-cf-minor').prop('checked'),
+        };
+    };
+    const fClear = () => {
+        for (const id of ['zh', 'booru', 'series', 'seriestag', 'aliases', 'outfitname', 'identity', 'outfit', 'note']) {
+            $('#cig-cf-' + id).val('');
+        }
+        $('#cig-cf-rating').val('sfw');
+        $('#cig-cf-minor').prop('checked', false);
+        $('#cig-cf-msg').text('');
+    };
+    const fSave = (doAdopt) => {
+        const s = ctx.S();
+        const raw = fVals();
+        // 中文名 + 没写 booru 时：英文名就拿名字小写当 tag，中文名则用通用的 original character
+        if (raw.zh && !raw.booru) raw.booru = /^[\x00-\x7F]+$/.test(raw.zh) ? raw.zh.toLowerCase() : 'original character';
+        const r = normalizeEntry(raw, 0);
+        if (r.error) { fMsg.text('❌ ' + r.error); ctx.setStatus(r.error, 'cig-err'); return; }
+        const entry = r.entry;
+        const list = Array.isArray(s.customChars) ? s.customChars.slice() : [];
+        const hit = list.findIndex(x => x && (x.id === entry.id || (x.booru && x.booru === entry.booru) || x.zh === entry.zh));
+        if (hit >= 0) list[hit] = Object.assign({}, list[hit], entry);   // 同名/同 tag = 修改，覆盖
+        else list.push(entry);
+        s.customChars = list;
+        if (doAdopt) adopt(entry, true);
+        ctx.save();
+        render();
+        const tip = doAdopt
+            ? ('✅ 已保存并建档「' + entry.zh + '」：外观 = ' + entry.identity.slice(0, 50)
+               + (entry.outfit ? '　服装 = ' + entry.outfitName : '（没填服装，只建了外观档）'))
+            : ('✅ 已保存「' + entry.zh + '」到自定义角色，还没建档 —— 在下面列表里点「一键建档」即可');
+        fMsg.text(tip);
+        ctx.setStatus(tip, 'cig-ok');
+    };
+    fRow.append(mkCusBtn('cig-cf-save-adopt', '保存并建档', () => fSave(true)));
+    fRow.append(mkCusBtn('cig-cf-save-only', '只保存不建档', () => fSave(false)));
+    fRow.append(mkCusBtn('cig-cf-example', '填入示例', () => {
+        const demo = {
+            zh: '小樱', booru: 'sakura (custom)', series: '我的原创', seriestag: 'my original',
+            aliases: '小樱、Sakura', outfitname: '粉色连衣裙',
+            identity: '1girl, solo, long pink hair, green eyes, small breasts',
+            outfit: 'pink dress, white thighhighs, brown loafers',
+            note: '自建示例，可随意改',
+        };
+        for (const k of Object.keys(demo)) $('#cig-cf-' + k).val(demo[k]);
+        fMsg.text('已填入示例 —— 直接点「保存并建档」就能看到效果');
+    }));
+    fRow.append(mkCusBtn('cig-cf-clear', '清空', () => fClear()));
+    fbox.append(fRow, fMsg);
+    $root.append(fbox);
+
 
         $cusFile.on('change', function () {
             const f = this.files && this.files[0];

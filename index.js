@@ -152,7 +152,10 @@ const DEFAULTS = {
     freeWorkflow: '',
     lockWorkflow: '',
     denoise: 0.65,
-    useCharSeed: true,
+    useCharSeed: true,      // 按角色名算固定 seed（让同一个角色的脸更稳）
+    seedFixed: false,       // 勾了就一律用 seedValue，不再按角色算
+    seedValue: 0,           // 固定种子的值
+    lastSeed: -1,           // 上次出图真正用的种子（-1 = 随机）
     characters: {},
     outfits: {},
     player: { identity: '', outfit: '' },
@@ -787,6 +790,28 @@ function addOutfit(name, tags) {
     const n = uniqueOutfitName(wanted);
     s.outfits[n] = { tags: body, base: n };
     return { name: n, reused: false, why: hit.reason };
+}
+
+/**
+ * 勾了「固定种子」就返回那个值；没勾返回 null（表示按角色算或随机）。
+ * 返回 null 和返回 0 是两回事 —— 0 是个合法种子。
+ */
+function seedFixedValue() {
+    const s = S();
+    if (!s.seedFixed) return null;
+    const v = Math.floor(Number(s.seedValue));
+    return Number.isFinite(v) && v >= 0 ? v : 0;
+}
+
+/** 面板上那行「本次会用 / 上次用了」的提示。 */
+function renderSeedHint() {
+    const s = S();
+    const cur = seedFixedValue();
+    let eff;
+    if (cur !== null) eff = cur + '（固定）';
+    else if (s.useCharSeed) eff = '按角色算 ' + seedFor(resolvedName()) + '（要自己定就勾「固定种子」）';
+    else eff = '每次随机';
+    $('#cig-seed-hint').text('本次会用：' + eff + '　·　上次出图用了：' + (s.lastSeed >= 0 ? s.lastSeed : '随机'));
 }
 
 function seedFor(name) {
@@ -1955,15 +1980,19 @@ function buildUI() {
           <div class="cig-label">会拼进提示词的外观锁<span class="cig-hint">（所有生图路径生效）</span></div>
           <div id="cig-look-preview" class="cig-hint"></div>
         </div>
+        <div class="cig-label">自建 / 修改服装<span class="cig-hint">（自己填名字和标签，存进全局服装库）</span></div>
         <textarea id="cig-outfit" rows="3" placeholder="white summer dress, thighhighs, brown loafers"></textarea>
-        <input id="cig-outfit-name" type="text" placeholder="服装名（另存时用）" />
+        <input id="cig-outfit-name" type="text" placeholder="服装名（必填，例如：白色夏日连衣裙）" />
+        <select id="cig-outfit-base"></select>
+        <label class="cig-check"><input id="cig-outfit-force" type="checkbox" /> 强制新建分类（忽略「太像」判定）</label>
         <div class="cig-row">
-          <button id="cig-outfit-save" class="cig-btn">另存为</button>
+          <button id="cig-outfit-save" class="cig-btn cig-primary">保存到服装库</button>
           <button id="cig-outfit-delete" class="cig-btn">删除该服装</button>
         </div>
+        <div id="cig-outfit-msg" class="cig-hint"></div>
         <button id="cig-outfit-autogroup" class="cig-btn cig-wide">自动整理服装分类</button>
         <div class="cig-hint">服装库全局共享 —— 任何角色都能穿任意一套。上方下拉框按「分类」分组，
-          **差分**指同一套衣服的不同状态：原装 / 破损 / 半脱 / 换了一部分（鞋袜、外层、颜色…）——
+          <b>差分</b>指同一套衣服的不同状态：原装 / 破损 / 半脱 / 换了一部分（鞋袜、外层、颜色…）——
 这种才收成「名字·2」。只是长得像的两套衣服（连衣裙 vs 和服）不会合并，
 只是措辞不同或只换了个小首饰的也不会重复存一条。选「跟随剧情」则不锁定服装。</div>
 
@@ -2051,6 +2080,13 @@ function buildUI() {
           Image Generation → Common Prompt Prefix 里设置，插件会自动沿用，不用在这里填。</div>
 
         <label class="cig-check"><input id="cig-charseed" type="checkbox" /> 按角色固定 seed（<span id="cig-seedval">—</span>）</label>
+        <div class="cig-row">
+          <label class="cig-check"><input id="cig-seedfix" type="checkbox" /> 固定种子</label>
+          <input id="cig-seed-input" type="number" min="0" step="1" placeholder="0" />
+          <button id="cig-seed-dice" class="cig-btn" title="随机生成一个种子">🎲 随机</button>
+          <button id="cig-seed-last" class="cig-btn" title="用上次出图实际使用的种子">用上次</button>
+        </div>
+        <div id="cig-seed-hint" class="cig-hint"></div>
         <label class="cig-check"><input id="cig-usellm" type="checkbox" /> 用 LLM 把输入改写成生图语法</label>
 
         <label class="cig-label" for="cig-lockworkflow">锁定形象：工作流文件名</label>
@@ -2162,6 +2198,7 @@ function buildUI() {
         $('#cig-identity').prop('disabled', !name);
         $('#cig-cast-delete').prop('disabled', !s.characters[name]);
         $('#cig-seedval').text(s.useCharSeed ? String(seedFor(name)) : '关闭');
+        try { renderSeedHint(); } catch { /* 面板没渲染好就算了 */ }
 
         if (isPlayer(name)) {
             $('#cig-cast-owner').text(`🧍 「${playerLabel()}」是玩家主角（persona），存在独立的玩家窗口里`);
@@ -2237,6 +2274,18 @@ function buildUI() {
             $sel.append($g);
         }
         $sel.val(current);
+
+        // 「归到哪套衣服」下拉（自建时分差分用）
+        const $base = $('#cig-outfit-base');
+        if ($base.length) {
+            const keep = String($base.val() || '');
+            $base.empty();
+            $base.append($('<option>').val('').text('归到哪套衣服：自动判断（推荐）'));
+            for (const label of [...groups.keys()].sort(byName)) {
+                $base.append($('<option>').val(label).text('归到「' + label + '」当差分'));
+            }
+            if (keep && $base.find('option[value="' + keep + '"]').length) $base.val(keep);
+        }
 
         $('#cig-outfit').val(outfitTags()).prop('disabled', !s.currentOutfit);
         $('#cig-outfit-delete').prop('disabled', !s.currentOutfit);
@@ -2324,6 +2373,8 @@ function buildUI() {
     $('#cig-quality').val(s.quality);
     $('#cig-mode').val(s.mode);
     $('#cig-charseed').prop('checked', !!s.useCharSeed);
+    $('#cig-seedfix').prop('checked', !!s.seedFixed);
+    $('#cig-seed-input').val(s.seedValue);
     $('#cig-usellm').prop('checked', !!s.useLlm);
     $('#cig-autoreg').prop('checked', !!s.autoRegister);
     $('#cig-autofollow').prop('checked', !!s.autoFollow);
@@ -2869,6 +2920,37 @@ function buildUI() {
     $('#cig-usellm').on('change', function () { s.useLlm = !!this.checked; save(); });
     $('#cig-mode').on('change', function () { s.mode = String(this.value); save(); renderCast(); });
     $('#cig-charseed').on('change', function () { s.useCharSeed = !!this.checked; save(); renderCast(); });
+    $('#cig-seedfix').on('change', function () {
+        s.seedFixed = !!this.checked;
+        if (s.seedFixed && !(Number(s.seedValue) >= 0)) s.seedValue = 0;
+        save();
+        renderSeedHint();
+        setStatus(s.seedFixed ? ('已固定种子：' + s.seedValue) : '已取消固定种子（改回按角色算 / 随机）', 'cig-ok');
+    });
+    $('#cig-seed-input').on('input', function () {
+        s.seedValue = Math.max(0, Math.floor(Number(this.value) || 0));
+        save();
+        renderSeedHint();
+    });
+    $('#cig-seed-dice').on('click', () => {
+        s.seedValue = Math.floor(Math.random() * 2000000000);
+        s.seedFixed = true;
+        $('#cig-seedfix').prop('checked', true);
+        $('#cig-seed-input').val(s.seedValue);
+        save();
+        renderSeedHint();
+        setStatus('已随机一个种子并固定：' + s.seedValue, 'cig-ok');
+    });
+    $('#cig-seed-last').on('click', () => {
+        if (!(s.lastSeed >= 0)) { setStatus('还没有出过图，没有「上次的种子」', 'cig-err'); return; }
+        s.seedValue = s.lastSeed;
+        s.seedFixed = true;
+        $('#cig-seedfix').prop('checked', true);
+        $('#cig-seed-input').val(s.seedValue);
+        save();
+        renderSeedHint();
+        setStatus('已锁定上次出图的种子：' + s.seedValue, 'cig-ok');
+    });
     $('#cig-autoreg').on('change', function () {
         s.autoRegister = !!this.checked;
         save();
@@ -2996,20 +3078,52 @@ function buildUI() {
     });
     $('#cig-outfit-save').on('click', () => {
         const name = String($('#cig-outfit-name').val()).trim();
-        if (!name) return;
-        const tags = $('#cig-outfit').val() || '';
+        const tags = tidyPrompt($('#cig-outfit').val());
+        const force = !!$('#cig-outfit-force').prop('checked');
+        const basePick = String($('#cig-outfit-base').val() || '');
+        const msg = (t, k) => { $('#cig-outfit-msg').text(t); setStatus(t, k || 'cig-ok'); };
+
+        if (!name) { msg('请先填「服装名」—— 这是存进库里的名字', 'cig-err'); return; }
+        if (!tags) { msg('请先填服装标签（英文 booru tag，逗号分隔）', 'cig-err'); return; }
+
+        // ① 名字已存在 = 修改那一套（不算新建）
+        if (s.outfits[name] && !force) {
+            s.outfits[name] = { tags, base: basePick || outfitBaseOf(name, s.outfits[name]) };
+            s.currentOutfit = name;
+            save(); renderOutfit();
+            msg('已更新已有服装「' + name + '」', 'cig-ok');
+            return;
+        }
+        // ② 指定了「归到某套衣服」→ 直接做成那套的差分
+        if (basePick) {
+            const b = outfitBaseOf(basePick, s.outfits[basePick]);
+            const nn = uniqueOutfitName(b);
+            s.outfits[nn] = { tags, base: b };
+            s.currentOutfit = nn;
+            save(); renderOutfit();
+            msg('已存入「' + nn + '」，归到「' + b + '」下当差分', 'cig-ok');
+            return;
+        }
+        // ③ 勾了「强制新建」→ 不判相似，直接开新分类
+        if (force) {
+            const nn = uniqueOutfitName(name);
+            s.outfits[nn] = { tags, base: nn };
+            s.currentOutfit = nn;
+            save(); renderOutfit();
+            msg('已强制存为新分类「' + nn + '」', 'cig-ok');
+            return;
+        }
+        // ④ 自动判定：同一套衣服的破损/换部件 → 差分；只是太像 → 不重复存
         const res = addOutfit(name, tags);
-        if (!res) { setStatus('服装内容是空的', 'cig-err'); return; }
+        if (!res) { msg('服装内容是空的', 'cig-err'); return; }
         s.currentOutfit = res.name;
-        $('#cig-outfit-name').val('');
-        save();
-        renderOutfit();
+        save(); renderOutfit();
         if (res.reused) {
-            setStatus(`内容与已有服装「${res.name}」完全相同，直接复用了，没有新建`, 'cig-ok');
+            msg('和已有服装「' + res.name + '」是同一套' + (res.why ? '（' + res.why + '）' : '') + '，没有重复存 —— 真要新建就勾上面的「强制新建分类」', 'cig-ok');
         } else if (res.grouped) {
-            setStatus(`「${res.name}」与「${res.grouped}」相近，已归入该分类（相似度 ${res.score.toFixed(2)}）`, 'cig-ok');
+            msg('「' + res.name + '」收成了「' + res.grouped + '」的差分' + (res.why ? '（' + res.why + '）' : ''), 'cig-ok');
         } else {
-            setStatus(`已存为新分类「${res.name}」`, 'cig-ok');
+            msg('已存为新分类「' + res.name + '」', 'cig-ok');
         }
     });
     $('#cig-outfit-delete').on('click', () => {
@@ -3432,7 +3546,7 @@ function buildUI() {
         renderOutfit();
         renderCast();
         if (res.reused) setStatus(`内容与已有服装「${res.name}」相同，直接复用，没有新建`, 'cig-ok');
-        else if (res.grouped) setStatus(`「${res.name}」与「${res.grouped}」相近，已归入该分类（相似度 ${res.score.toFixed(2)}）`, 'cig-ok');
+        else if (res.grouped) setStatus('「' + res.name + '」收成了「' + res.grouped + '」的差分' + (res.why ? '（' + res.why + '）' : ''), 'cig-ok');
         else setStatus(`已入库服装「${res.name}」`, 'cig-ok');
     }));
 
@@ -3647,7 +3761,9 @@ async function generateFree(prompt, useRef = false) {
             setComfyPlaceholder('free_ref', '');
         }
         setLoraPlaceholders();
-        sd.seed = -1;                     // 绘图区每次随机，不跟角色固定种子
+        const fixedSeedFree = seedFixedValue();
+        sd.seed = fixedSeedFree !== null ? fixedSeedFree : -1;   // 绘图区默认随机；勾了「固定种子」就照用
+        s.lastSeed = sd.seed;
         save();
     }
     const cmd = SlashCommandParser.commands['imagine'];
@@ -3680,7 +3796,9 @@ async function generate(prompt) {
         const wf = s.mode === 'free' ? workflowFor(false) : s.lockWorkflow;
         if (wf) sd.comfy_workflow = wf;
         sd.denoising_strength = s.mode === 'free' ? 1.0 : Number(s.denoise);
-        sd.seed = s.useCharSeed ? seedFor(resolvedName()) : -1;
+        const fixedSeed = seedFixedValue();
+        sd.seed = fixedSeed !== null ? fixedSeed : (s.useCharSeed ? seedFor(resolvedName()) : -1);
+        s.lastSeed = sd.seed;
         setLoraPlaceholders();
         save();
         try {

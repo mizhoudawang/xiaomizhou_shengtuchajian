@@ -170,6 +170,43 @@
 /* 这一条是滚动能不能用的关键：column flex 容器里的子项默认 flex-shrink:1，
    放不下时会被「压扁」而不是溢出 —— 于是内容永远刚好装得下，滚动条就成了摆设。
    让它们不许缩，内容超出后才会真正触发 #cig-body 的滚动。 */
+/* 自建角色表单：两列，窄了自动变一列 */
+.cig-cf-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 10px;
+    margin: 6px 0;
+}
+
+.cig-cf-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.cig-cf-label {
+    font-size: 12px;
+    opacity: 0.85;
+    margin-top: 4px;
+}
+
+#cig-cus-form-box > summary {
+    cursor: pointer;
+}
+
+#cig-cus-form-box textarea,
+#cig-cus-form-box input[type="text"],
+#cig-cus-form-box select,
+#cig-cus-form-box input[type="number"] {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 2px 0;
+}
+
+@media (max-width: 520px) {
+    .cig-cf-grid { grid-template-columns: 1fr; }
+}
+
 #cig-body > * {
     flex: 0 0 auto;
     min-height: 0;
