@@ -796,6 +796,22 @@ function addOutfit(name, tags) {
  * 勾了「固定种子」就返回那个值；没勾返回 null（表示按角色算或随机）。
  * 返回 null 和返回 0 是两回事 —— 0 是个合法种子。
  */
+
+/** 把面板夹回视口内：否则拖到屏幕下方后，底部的滚动条就跑到屏幕外了（"滑不动"）。 */
+function clampPanelPos() {
+    const el = document.getElementById('cig-panel');
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const maxTop = Math.max(0, window.innerHeight - Math.min(r.height, window.innerHeight) - 8);
+    const maxLeft = Math.max(0, window.innerWidth - Math.min(r.width, window.innerWidth) - 8);
+    let top = Math.min(Math.max(0, r.top), maxTop);
+    let left = Math.min(Math.max(0, r.left), maxLeft);
+    if (Math.abs(top - r.top) > 0.5) el.style.top = top + 'px';
+    if (Math.abs(left - r.left) > 0.5) el.style.left = left + 'px';
+    const s = S();
+    if (s.panelSize) { s.panelPos = { left, top }; }
+}
+
 function seedFixedValue() {
     const s = S();
     if (!s.seedFixed) return null;
@@ -3285,6 +3301,7 @@ function buildUI() {
     header.addEventListener('pointerup', endDrag);
     header.addEventListener('pointercancel', endDrag);
 
+    $(window).on('resize', () => clampPanelPos());
     $(window).on('resize', () => {
         if (s.launcherPos) placeLauncher(s.launcherPos.x, s.launcherPos.y);
         const r = $panel[0].getBoundingClientRect();

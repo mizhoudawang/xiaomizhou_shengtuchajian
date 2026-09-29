@@ -207,6 +207,25 @@
     .cig-cf-grid { grid-template-columns: 1fr; }
 }
 
+
+/* 面板里的挂载容器不许自己变成滚动陷阱 —— 滚轮要一路传给 #cig-body */
+#cig-fan-body,
+#cig-artist-body,
+#cig-cus-form-box {
+    overflow: visible;
+    min-height: 0;
+}
+
+/* 内层角色列表滑到底后继续滚面板（默认的 contain 会把滚轮吃掉，就是"滑不动"） */
+.cig-fan-list {
+    overscroll-behavior: auto;
+}
+
+/* 面板本身绝不滚动、绝不出现第二个滚动条 */
+#cig-panel {
+    overflow: hidden;
+}
+
 #cig-body > * {
     flex: 0 0 auto;
     min-height: 0;
