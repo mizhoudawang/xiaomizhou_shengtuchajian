@@ -31,6 +31,7 @@ import { mountFanPanel } from './fanpanel.js';
 import { buildArtistBlock } from './artists.js';
 import { classifyOutfit, groupByGarment, primaryGarmentOf } from './outfits.js';
 import { extractPrompts, planPrompts, looksLikeProse } from './autogen.js';
+import { FANCHARS } from './fanchars.js';
 import { mountArtistPanel } from './artistpanel.js';
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
 import {
@@ -756,6 +757,38 @@ function autoGroupOutfits() {
     return changed;
 }
 
+/**
+ * 服装来源标签 —— 明确"这套衣服哪来的"，避免自动记录多了以后搞混。
+ * 老条目没记来源的就按现有信息倒推：谁穿着它 → 「角色·某某」；查不到 → 「早前收录」。
+ */
+function outfitSourceOf(name, v) {
+    const s = S();
+    const body = v && typeof v === 'object' ? v : { tags: v };
+    if (body.src) return String(body.src);
+    for (const [who, e] of Object.entries(s.characters || {})) {
+        if (e && e.outfit === name) return '角色·' + who;
+    }
+    // 内置同人库的标志性服装 → 系统自带
+    try {
+        for (const c of (FANCHARS || [])) {
+            if (c && c.outfitName === name) return '同人库·' + (c.series || '内置');
+        }
+    } catch {}
+    return '早前收录（来源不明）';
+}
+
+/** 给所有老服装补上来源标签（只跑一次，补完就存）。 */
+function inferOutfitSources() {
+    const s = S();
+    let fixed = 0;
+    for (const [name, v] of Object.entries(s.outfits || {})) {
+        if (v && typeof v === 'object' && !v.src) { v.src = outfitSourceOf(name, v); fixed++; }
+        else if (typeof v === 'string') { s.outfits[name] = { tags: v, base: name, src: outfitSourceOf(name, v) }; fixed++; }
+    }
+    if (fixed) { save(); }
+    return fixed;
+}
+
 /** 同名但内容不同时，自动派生成差分「名字·2」。 */
 function uniqueOutfitName(base) {
     const s = S();
@@ -772,7 +805,7 @@ function uniqueOutfitName(base) {
  *   3. 都不像       -> 自己开一个新分类
  * 返回 { name, reused, grouped? }。
  */
-function addOutfit(name, tags) {
+function addOutfit(name, tags, src = '手动') {
     const s = S();
     const wanted = String(name || '').trim() || '未命名服装';
     const body = tidyPrompt(tags);
@@ -788,11 +821,11 @@ function addOutfit(name, tags) {
     if (hit.kind === 'variant') {
         const base = outfitBaseOf(hit.name, s.outfits[hit.name]);
         const n = uniqueOutfitName(base);
-        s.outfits[n] = { tags: body, base };
+        s.outfits[n] = { tags: body, base, src };
         return { name: n, reused: false, grouped: base, why: hit.reason };
     }
     const n = uniqueOutfitName(wanted);
-    s.outfits[n] = { tags: body, base: n };
+    s.outfits[n] = { tags: body, base: n, src };
     return { name: n, reused: false, why: hit.reason };
 }
 
@@ -1658,7 +1691,7 @@ function mergeCast(payload) {
         if (!tags) continue;
         const owner = String(o.character ?? o.name_of_character ?? '').trim();
 
-        const res = addOutfit(o.name, tags);
+        const res = addOutfit(o.name, tags, '剧情·' + (resolvedName() || '未知角色'));
         if (!res) continue;
         const name = res.name;
         if (res.reused) {
@@ -2082,6 +2115,7 @@ function buildUI() {
         <label class="cig-label" for="cig-outfit-select">服装</label>
         <select id="cig-outfit-select"></select>
         <div id="cig-outfit-owner" class="cig-hint"></div>
+        <div id="cig-outfit-srcmsg" class="cig-hint"></div>
         <div class="cig-lookbox">
           <div class="cig-label">会拼进提示词的外观锁<span class="cig-hint">（所有生图路径生效）</span></div>
           <div id="cig-look-preview" class="cig-hint"></div>
@@ -2089,6 +2123,7 @@ function buildUI() {
         <div class="cig-label">自建 / 修改服装<span class="cig-hint">（自己填名字和标签，存进全局服装库）</span></div>
         <textarea id="cig-outfit" rows="3" placeholder="white summer dress, thighhighs, brown loafers"></textarea>
         <input id="cig-outfit-name" type="text" placeholder="服装名（必填，例如：白色夏日连衣裙）" />
+        <input id="cig-outfit-src" type="text" placeholder="来源（可选，例如：剧情·胡桃 / 同人库·原神 / 手动）" />
         <select id="cig-outfit-base"></select>
         <label class="cig-check"><input id="cig-outfit-force" type="checkbox" /> 强制新建分类（忽略「太像」判定）</label>
         <div class="cig-row">
@@ -2395,7 +2430,10 @@ function buildUI() {
         for (const label of [...groups.keys()].sort(byName)) {
             const items = groups.get(label).slice().sort(byName);
             const $g = $('<optgroup>').attr('label', items.length > 1 ? `${label}（${items.length} 套）` : label);
-            for (const k of items) $g.append($('<option>').val(k).text(k === label ? k : `　└ ${k}`));
+            for (const k of items) {
+                const srcTxt = outfitSourceOf(k, s.outfits[k]);
+                $g.append($('<option>').val(k).text((k === label ? k : '　└ ' + k) + '（' + srcTxt + '）'));
+            }
             $sel.append($g);
         }
         $sel.val(current);
@@ -2419,6 +2457,9 @@ function buildUI() {
         // 显示当前角色穿的是哪一套
         const me = resolvedName();
         const worn = wornOutfitOf(me);
+        $('#cig-outfit-srcmsg').text(s.currentOutfit && s.outfits[s.currentOutfit]
+            ? '这套衣服的来源：' + outfitSourceOf(s.currentOutfit, s.outfits[s.currentOutfit])
+            : '');
         $('#cig-outfit-owner').text(
             me ? `${isPlayer(me) ? '🧍 ' : ''}「${isPlayer(me) ? playerLabel() : me}」当前穿着：${worn && s.outfits[worn] ? worn : '（未知）'}`
                : '当前没有选中角色',
@@ -3145,6 +3186,7 @@ function buildUI() {
         $('#cig-groupth-val').text(s.groupThreshold.toFixed(2));
         save();
     });
+    try { const fixed = inferOutfitSources(); if (fixed) setStatus('已给 ' + fixed + ' 套老服装补上来源标签', 'cig-ok'); } catch {}
     $('#cig-outfit-autogroup').on('click', () => {
         const changed = autoGroupOutfits();
         renderOutfit();
@@ -3247,6 +3289,7 @@ function buildUI() {
         const tags = tidyPrompt($('#cig-outfit').val());
         const force = !!$('#cig-outfit-force').prop('checked');
         const basePick = String($('#cig-outfit-base').val() || '');
+        const srcPick = String($('#cig-outfit-src').val() || '').trim() || '手动';
         const msg = (t, k) => { $('#cig-outfit-msg').text(t); setStatus(t, k || 'cig-ok'); };
 
         if (!name) { msg('请先填「服装名」—— 这是存进库里的名字', 'cig-err'); return; }
@@ -3254,7 +3297,7 @@ function buildUI() {
 
         // ① 名字已存在 = 修改那一套（不算新建）
         if (s.outfits[name] && !force) {
-            s.outfits[name] = { tags, base: basePick || outfitBaseOf(name, s.outfits[name]) };
+            s.outfits[name] = { tags, base: basePick || outfitBaseOf(name, s.outfits[name]), src: srcPick };
             s.currentOutfit = name;
             save(); renderOutfit();
             msg('已更新已有服装「' + name + '」', 'cig-ok');
@@ -3264,7 +3307,7 @@ function buildUI() {
         if (basePick) {
             const b = outfitBaseOf(basePick, s.outfits[basePick]);
             const nn = uniqueOutfitName(b);
-            s.outfits[nn] = { tags, base: b };
+            s.outfits[nn] = { tags, base: b, src: srcPick };
             s.currentOutfit = nn;
             save(); renderOutfit();
             msg('已存入「' + nn + '」，归到「' + b + '」下当差分', 'cig-ok');
@@ -3273,14 +3316,14 @@ function buildUI() {
         // ③ 勾了「强制新建」→ 不判相似，直接开新分类
         if (force) {
             const nn = uniqueOutfitName(name);
-            s.outfits[nn] = { tags, base: nn };
+            s.outfits[nn] = { tags, base: nn, src: srcPick };
             s.currentOutfit = nn;
             save(); renderOutfit();
             msg('已强制存为新分类「' + nn + '」', 'cig-ok');
             return;
         }
         // ④ 自动判定：同一套衣服的破损/换部件 → 差分；只是太像 → 不重复存
-        const res = addOutfit(name, tags);
+        const res = addOutfit(name, tags, srcPick);
         if (!res) { msg('服装内容是空的', 'cig-err'); return; }
         s.currentOutfit = res.name;
         save(); renderOutfit();
@@ -3747,7 +3790,7 @@ function buildUI() {
         if (!ot) throw new Error('没能解析出服装，请手动填写');
 
         const on = String(obj?.name ?? '').trim() || `${name}的服装`;
-        const res = addOutfit(on, ot);
+        const res = addOutfit(on, ot, '提取·' + (name || '未知角色'));
         if (!res) throw new Error('服装内容是空的');
         s.currentOutfit = res.name;
         const ent = subjectEntry(name);

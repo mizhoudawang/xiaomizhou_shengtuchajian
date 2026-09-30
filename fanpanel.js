@@ -111,7 +111,9 @@ export function mountFanPanel(ctx) {
                 : '',
         };
         // 自建角色可以不填服装：那就只建外观档，不往服装库里塞空条目
-        if (c.outfit && !s.outfits[c.outfitName]) s.outfits[c.outfitName] = { tags: c.outfit, base: c.outfitName };
+        if (c.outfit && !s.outfits[c.outfitName]) {
+            s.outfits[c.outfitName] = { tags: c.outfit, base: c.outfitName, src: (c.custom ? '自建·' : '同人库·') + (c.series || '未知作品') };
+        }
         s.fanSavedIds = [...new Set([...(s.fanSavedIds || []), c.id])];
         // 顺手把名字映射补上（词库不认识中文名，映射让提示词里的「胡桃」变成 booru tag）
         if (!s.fanNameMap || typeof s.fanNameMap !== 'object') s.fanNameMap = {};
