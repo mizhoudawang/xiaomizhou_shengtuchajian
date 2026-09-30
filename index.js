@@ -758,6 +758,50 @@ function autoGroupOutfits() {
 }
 
 /**
+ * 给服装改名，并同步所有引用：
+ *   · 服装库的键
+ *   · 其它服装的 base（差分归属）指向它时
+ *   · 角色档案里「穿的哪一套」
+ *   · 当前选中的那套
+ * 返回 { ok:true, moved:{...} } 或 { ok:false, why:'...' }
+ */
+function renameOutfitIn(s, oldName, newName) {
+    const from = String(oldName || '').trim();
+    const to = String(newName || '').trim();
+    if (!from || !to) return { ok: false, why: '名字不能为空' };
+    if (from === to) return { ok: false, why: '新旧名字一样' };
+    if (!s.outfits || s.outfits[from] === undefined) return { ok: false, why: '找不到这套服装：' + from };
+    if (s.outfits[to] !== undefined) return { ok: false, why: '已经有一套叫「' + to + '」了 —— 换个名字，或先把那套删掉' };
+
+    const moved = { chars: [], variants: [], self: false };
+    const v = s.outfits[from];
+    const body = (v && typeof v === 'object') ? { ...v } : { tags: v, base: from };
+    if (body.base === from) { body.base = to; moved.self = true; }
+    s.outfits[to] = body;
+    // 键顺序：尽量保持原位，避免下拉框里跳位置
+    const keys = Object.keys(s.outfits);
+    const rebuilt = {};
+    for (const k of keys) {
+        if (k === from) { rebuilt[to] = s.outfits[to]; continue; }   // 就插在原位置，别跳到最后
+        if (k === to) continue;                                       // 新加的键跳过（已在上面插过）
+        rebuilt[k] = s.outfits[k];
+    }
+    s.outfits = rebuilt;
+
+    // 差分的归属
+    for (const [k, val] of Object.entries(s.outfits)) {
+        if (val && typeof val === 'object' && val.base === from) { val.base = to; moved.variants.push(k); }
+    }
+    // 角色档案里穿着它
+    for (const [who, e] of Object.entries(s.characters || {})) {
+        if (e && e.outfit === from) { e.outfit = to; moved.chars.push(who); }
+    }
+    // 当前选中
+    if (s.currentOutfit === from) s.currentOutfit = to;
+    return { ok: true, moved };
+}
+
+/**
  * 服装来源标签 —— 明确"这套衣服哪来的"，避免自动记录多了以后搞混。
  * 老条目没记来源的就按现有信息倒推：谁穿着它 → 「角色·某某」；查不到 → 「早前收录」。
  */
@@ -2130,6 +2174,10 @@ function buildUI() {
           <button id="cig-outfit-save" class="cig-btn cig-primary">保存到服装库</button>
           <button id="cig-outfit-delete" class="cig-btn">删除该服装</button>
         </div>
+        <div class="cig-row">
+          <input id="cig-outfit-rename" type="text" placeholder="把当前选中的服装改名为…（会同步差分归属和角色档案）" />
+          <button id="cig-outfit-rename-btn" class="cig-btn">改名</button>
+        </div>
         <div id="cig-outfit-msg" class="cig-hint"></div>
         <button id="cig-outfit-autogroup" class="cig-btn cig-wide">自动整理服装分类</button>
         <div class="cig-hint">服装库全局共享 —— 任何角色都能穿任意一套。上方下拉框按「分类」分组，
@@ -2452,6 +2500,8 @@ function buildUI() {
 
         $('#cig-outfit').val(outfitTags()).prop('disabled', !s.currentOutfit);
         $('#cig-outfit-delete').prop('disabled', !s.currentOutfit);
+        $('#cig-outfit-rename').prop('disabled', !s.currentOutfit);
+        $('#cig-outfit-rename-btn').prop('disabled', !s.currentOutfit);
         $('#cig-outfit-save').prop('disabled', !String($('#cig-outfit-name').val() || '').trim());
 
         // 显示当前角色穿的是哪一套
@@ -3334,6 +3384,21 @@ function buildUI() {
         } else {
             msg('已存为新分类「' + res.name + '」', 'cig-ok');
         }
+    });
+    $('#cig-outfit-rename-btn').on('click', () => {
+        const oldName = s.currentOutfit;
+        const newName = String($('#cig-outfit-rename').val() || '').trim();
+        if (!oldName) { setStatus('先在上面的下拉框里选一套服装', 'cig-err'); return; }
+        const r = renameOutfitIn(s, oldName, newName);
+        if (!r.ok) { setStatus('改名失败：' + r.why, 'cig-err'); return; }
+        $('#cig-outfit-rename').val('');
+        save();
+        renderOutfit();
+        renderCast();
+        const parts = [];
+        if (r.moved.variants.length) parts.push('差分 ' + r.moved.variants.length + ' 套');
+        if (r.moved.chars.length) parts.push('角色档案 ' + r.moved.chars.length + ' 个（' + r.moved.chars.join('、') + '）');
+        setStatus('已改名：' + oldName + ' → ' + newName + (parts.length ? '（同步更新了 ' + parts.join('、') + '）' : ''), 'cig-ok');
     });
     $('#cig-outfit-delete').on('click', () => {
         if (!s.currentOutfit) return;
