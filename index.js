@@ -162,6 +162,8 @@ const DEFAULTS = {
     autoRegisterOutfit: true,  // 剧情登记时是否把"这套衣服"写进角色档案（关掉可防服装被剧情改乱）
     // 外观锁锁谁：subject=只锁主体一个人（最稳，默认）；declared=按提示词写的人数锁；all=提到谁就锁谁
     lockMode: 'subject',
+    // 是否把"谁在做什么"绑到人物位置上（会改写你的场景描写；默认关 = 完全按世界书写的画）
+    bindActions: false,
     autoIllustrateMax: 2,   // 一条消息最多自动出几张
     autoIllustrateLog: false,   // 是否把每次自动出图都写进聊天（默认只写失败）
     autoIllustrateDelay: 2500,  // 等消息流结束多久再动手（毫秒）
@@ -1584,7 +1586,7 @@ function injectLookIntoPrompt(prompt) {
 
     // 外观锁已经给了权威人数（3girls 这种），正文里对不上的计数 tag 必须清掉；
     // 扁平动作句要绑到位置上，否则「谁在做什么」全看模型猜
-    if (look) {
+    if (look && S().bindActions === true) {
         body = bindActionsToCast(body, presentCast(rawBody).map(n => ({
             identity: identityOf(n),
             outfit: outfitTagsFor(n),
