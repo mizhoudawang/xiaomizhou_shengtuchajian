@@ -160,6 +160,8 @@ const DEFAULTS = {
     lastSeed: -1,           // 上次出图真正用的种子（-1 = 随机）
     autoIllustrate: true,   // 盯住消息里的提示词块，自动按它出图（世界书负责出块，插件负责出图）
     autoRegisterOutfit: true,  // 剧情登记时是否把"这套衣服"写进角色档案（关掉可防服装被剧情改乱）
+    // 外观锁锁谁：subject=只锁主体一个人（最稳，默认）；declared=按提示词写的人数锁；all=提到谁就锁谁
+    lockMode: 'subject',
     autoIllustrateMax: 2,   // 一条消息最多自动出几张
     autoIllustrateLog: false,   // 是否把每次自动出图都写进聊天（默认只写失败）
     autoIllustrateDelay: 2500,  // 等消息流结束多久再动手（毫秒）
@@ -1340,6 +1342,14 @@ function presentCast(scene = '', textOnly = false) {
     const text = String(scene || '').toLowerCase();
     // 一、场景里写到了谁 → 就只锁谁（其它人一律不进画面）
     const mentioned = list.filter(n => castKeysOf(n).some(k => sceneMentions(scene, k)));
+    const mode = String(S().lockMode || 'subject');
+    // 模式一：只锁主体一个人（默认，最稳 —— 不会再"多出一个人"）
+    if (mentioned.length && mode === 'subject') {
+        const ordered = mentioned.slice().sort((a, b) => firstIndexOf(scene, a) - firstIndexOf(scene, b));
+        return ordered.slice(0, 1);
+    }
+    // 模式二：提到谁就锁谁
+    if (mentioned.length && mode === 'all') return mentioned;
     // 单人画面：只保留第一个提到的人 —— 否则会把别人也锁进来，solo 照变成"多了一个人"
     if (mentioned.length && isSoloScene(scene)) return mentioned.slice(0, 1);
     // 提示词写了几个人，就最多锁几个人（多出来的按"在文字里出现的先后"截掉）
@@ -2518,6 +2528,12 @@ function buildUI() {
           <button id="cig-autogen-pick" class="cig-btn">从最近消息里抓一段</button>
         </div>
         <div id="cig-autogen-manual-msg" class="cig-hint"></div>
+        <label class="cig-label" for="cig-lockmode">外观锁锁谁<span class="cig-hint">（画面里多出人多半是这里的问题）</span></label>
+        <select id="cig-lockmode">
+          <option value="subject">只锁主体一个人（推荐，最稳）</option>
+          <option value="declared">按提示词写的人数锁（世界书写 2girls 就锁 2 个）</option>
+          <option value="all">提到谁就锁谁（最贪）</option>
+        </select>
         <div class="cig-hint">世界书负责让模型写出提示词块（tag 列表或自然语言描写都行），这里负责把块里的提示词送去出图。
           用了这个就可以把 auto-illustrator 关掉（避免两边都出图）。</div>
         <label class="cig-check"><input id="cig-charseed" type="checkbox" /> 按角色固定 seed（<span id="cig-seedval">—</span>）</label>
@@ -2823,6 +2839,7 @@ function buildUI() {
     $('#cig-mode').val(s.mode);
     $('#cig-charseed').prop('checked', !!s.useCharSeed);
     $('#cig-autogen').prop('checked', s.autoIllustrate !== false);
+    $('#cig-lockmode').val(String(s.lockMode || 'subject'));
     $('#cig-autogen-max').val(s.autoIllustrateMax || 2);
     $('#cig-autogen-delay').val(s.autoIllustrateDelay || 2500);
     $('#cig-seedfix').prop('checked', !!s.seedFixed);
@@ -3378,6 +3395,11 @@ function buildUI() {
         setStatus(s.autoIllustrate ? '已开启自动生图：以后按消息里的提示词块自动出图' : '已关闭自动生图', 'cig-ok');
     });
     $('#cig-autogen-max').on('input', function () { s.autoIllustrateMax = Math.max(1, Math.min(6, Number(this.value) || 2)); save(); });
+    $('#cig-lockmode').on('change', function () {
+        s.lockMode = String(this.value);
+        save();
+        setStatus('外观锁模式已切换：' + this.options[this.selectedIndex].text, 'cig-ok');
+    });
     const autoMsg = (t, k) => { $('#cig-autogen-manual-msg').text(t); setStatus(t, k || 'cig-ok'); };
     $('#cig-autogen-go').on('click', async () => {
         const text = String($('#cig-autogen-manual').val() || '').trim();
