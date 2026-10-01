@@ -1218,12 +1218,17 @@ function presentCast(scene = '') {
     const list = sceneCast();
     const cur = resolvedName();
     const text = String(scene || '').toLowerCase();
-    const keep = list.filter(n => {
-        if (cur && n === cur) return true;
-        return castKeysOf(n).some(k => text.includes(k));
-    });
+    // 一、场景里写到了谁 → 就只锁谁（其它人一律不进画面）
+    const mentioned = list.filter(n => castKeysOf(n).some(k => text.includes(k)));
+    if (mentioned.length) return mentioned;
+    // 二、场景里写到了人，但我们认不出是谁（英文名/别名没登记）→ 宁可【不锁】，
+    //     也不要拿"当前选中的那个"去顶（这正是"主角被融进别人场景"的根源）。
+    const hasProperNoun = /[A-Z][a-z]{2,}/.test(scene)
+        || /[\u4e00-\u9fff]{2,4}(?=站在|坐在|说道|说着|走到|回头|看着|笑着|穿着|开口|点头|转身)/.test(scene);
+    if (hasProperNoun) return [];
+    // 三、确认场上没有别人 → 才用你明确选中的那一个（手动"锁长相"的原始用途）
     const hard = list.filter(n => cur && n === cur);
-    return keep.length ? keep : hard;
+    return hard;
 }
 
 function autoLookFromText(scene = '') {
@@ -1260,11 +1265,16 @@ function autoLookFromText(scene = '') {
 function buildLookBlock(scene = '') {
     const s = S();
     if (s.mode !== 'free') return '';
-    if (s.multiChar) {
-        const multi = buildMultiLook(presentCast(scene), scene);   // 只拼场景里真的在场的人
-        if (multi) return multi;
+    const present = presentCast(scene);          // 场景里真的在场的人（谁都没写 → 只含明确选中的那个）
+    if (!present.length) return '';              // 场上没人认得出来 → 不锁任何人，按提示词画
+    if (present.length >= 2) {
+        const multi = buildMultiLook(present, scene);   // 画面里有两个人以上 → 走多人锁
+        // 拼不出多人锁时【谁也不锁】，绝不退回"单人锁" ——
+        // 否则会把某一个人的整段外观（常常是玩家主角）当成画面主体描写，
+        // 和场景里真正的角色融成一个人（就是把主角和狐娘融合的那个 bug）。
+        return multi || '';
     }
-    const name = resolvedName();
+    const name = present[0];
     const id = identityOf(name);
     const sfw = shouldStripNudity(scene) && !nudeChosenOnPurpose(name);
     const raw = outfitTagsFor(name);
