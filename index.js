@@ -1033,7 +1033,7 @@ async function autoIllustrateLatest(force = false) {
         const text = String(m.mes || '');
         if (!text || text.startsWith('[自动生图]')) continue;
         if (!extractPrompts(text).length) continue;
-        const key = String(m.send_date || '') + '#' + i + '#' + text.length;
+        const key = String(m.send_date || '') + '#' + i;
         if (!force) {
             if ((s.autoDoneKeys || []).includes(key)) return false;   // 这条已经出过了
             s.autoDoneKeys = [...(s.autoDoneKeys || []).slice(-40), key];
@@ -1054,7 +1054,9 @@ async function autoIllustrate(text) {
     if (!plan.prompts.length) return;
     autoLastPrompts = plan.prompts.slice();
     // 不阻塞、不丢：按出现顺序排进队列，正在出图时后面来的就排在后面
-    autoQueue.push(...plan.prompts);
+    const hard = Math.max(1, Math.min(6, Number(s.autoIllustrateMax) || 2));
+    if (autoQueue.length >= hard) { setStatus('自动生图：队列已满（' + autoQueue.length + ' 张），本条消息多余的提示词已忽略', 'cig-err'); return; }
+    autoQueue.push(...plan.prompts.slice(0, hard - autoQueue.length));
     setStatus('自动生图：检测到 ' + plan.prompts.length + ' 条提示词，已排队（共 ' + autoQueue.length + ' 张待出）', 'cig-ok');
     autoPump();
 }
@@ -3923,6 +3925,7 @@ function buildUI() {
     });
     // 双保险：每 3 秒自己扫一遍最新消息（有些生成方式不发 MESSAGE_RECEIVED，只靠事件会漏）
     let autoWatchKey = '';
+    let autoPrevLen = -1;          // 上一条 AI 消息的长度（判断是否还在流式输出）
     setInterval(async () => {
         try {
             const s = S();
@@ -3933,15 +3936,19 @@ function buildUI() {
             if (!m || m.is_user || m.is_system) return;
             const text = String(m.mes || '');
             if (!text) return;
-            const key = String(m.send_date || '') + '#' + text.length;
+            const stable = (text.length === autoPrevLen);       // 长度没变 = 已经写完；否则还在流式输出
+            autoPrevLen = text.length;
+            const doneKey = String(m.send_date || '');          // 去重键：只看消息（别把长度算进去！）
+            const key = doneKey + '#' + Math.round(text.length / 50);
             const list = extractPrompts(text);
             if (key !== autoWatchKey) {
                 autoWatchKey = key;
                 $('#cig-autogen-manual-msg').text('自动扫描：最新一条 AI 消息 ' + text.length + ' 字符，认出 ' + list.length + ' 条提示词' + (list.length ? '，已交队列' : '（没认出外壳，可点「从最近消息里抓一段」看看）'));
             }
             if (!list.length) return;
-            if ((s.autoDoneKeys || []).includes(key)) return;
-            s.autoDoneKeys = [...(s.autoDoneKeys || []).slice(-40), key];
+            if (!stable) return;                                // 正文还在往外蹦字 → 先别出图（否则一轮会出几十张）
+            if ((s.autoDoneKeys || []).includes(doneKey)) return;
+            s.autoDoneKeys = [...(s.autoDoneKeys || []).slice(-60), doneKey];
             save();
             await autoIllustrate(text);
         } catch (e) { console.warn('[CharImageGen] 自动扫描出错', e); }
