@@ -1059,6 +1059,15 @@ function msgKeyOf(m, i = 0) {
 async function autoIllustrate(text, key = '') {
     const s = S();
     if (!s.autoIllustrate) return;
+    // 全局速率闸：3 分钟内最多出「每条上限 × 2」张 —— 兜底防刷（不管触发/去重哪一环出问题）
+    const cap = Math.max(1, Math.min(6, Number(s.autoIllustrateMax) || 2)) * 2;
+    const now = Date.now();
+    const b = s.autoBudget && (now - (s.autoBudget.ts || 0) < 180000) ? s.autoBudget : { ts: now, n: 0 };
+    if (b.n >= cap) {
+        setStatus('自动生图：3 分钟内已出 ' + b.n + ' 张（上限 ' + cap + '），本次已跳过以防刷图', 'cig-err');
+        return;
+    }
+    b.n++; b.ts = b.ts || now; s.autoBudget = b;
     const k = key || ('t' + String(text || '').length + '#' + String(text || '').slice(0, 32).replace(/\s+/g, ''));
     if (autoHandled.has(k)) return;                  // 这条消息已经出过图了
     autoHandled.add(k);
@@ -1072,6 +1081,7 @@ async function autoIllustrate(text, key = '') {
     const hard = Math.max(1, Math.min(6, Number(s.autoIllustrateMax) || 2));
     if (autoQueue.length >= hard) { setStatus('自动生图：队列已满（' + autoQueue.length + ' 张），本条消息多余的提示词已忽略', 'cig-err'); return; }
     autoQueue.push(...plan.prompts.slice(0, hard - autoQueue.length));
+    setStatus('自动生图：排队 ' + plan.prompts.length + ' 张（队列 ' + autoQueue.length + '） 消息键=' + String(key).slice(0, 28), 'cig-ok');
     setStatus('自动生图：检测到 ' + plan.prompts.length + ' 条提示词，已排队（共 ' + autoQueue.length + ' 张待出）', 'cig-ok');
     autoPump();
 }
@@ -3932,7 +3942,8 @@ function buildUI() {
     // 双保险：每 3 秒自己扫一遍最新消息（有些生成方式不发 MESSAGE_RECEIVED，只靠事件会漏）
     let autoWatchKey = '';
     let autoPrevLen = -1;          // 上一条 AI 消息的长度（判断是否还在流式输出）
-    setInterval(async () => {
+    if (window.__cigAutoTimer) clearInterval(window.__cigAutoTimer);   // 只允许一个轮询（重复注册会把张数翻倍）
+    window.__cigAutoTimer = setInterval(async () => {
         try {
             const s = S();
             if (!s.autoIllustrate) return;
