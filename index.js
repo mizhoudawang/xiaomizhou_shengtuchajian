@@ -3965,8 +3965,11 @@ function buildUI() {
             const doneKey = msgKeyOf(picked, pickedIdx);
             const list = extractPrompts(text);
             // 稳定性：长度与上一 tick 相同就算写完；或者消息已经存在超过 20 秒也认为写完（避免卡死）
-            const age = picked.send_date ? (Date.now() - Number(picked.send_date)) : 0;
-            const stable = (text.length === autoPrevLen) || (age > 20000);
+            // send_date 可能是 ISO 字符串（Number() 会得到 NaN），必须正确解析
+            const sdRaw = picked.send_date;
+            const sdMs = typeof sdRaw === 'number' ? sdRaw : (sdRaw ? Date.parse(String(sdRaw)) : 0);
+            const age = sdMs ? (Date.now() - sdMs) : 0;
+            const stable = (text.length === autoPrevLen) || (age > 8000);
             autoPrevLen = text.length;
             if ((s.autoDoneKeys || []).includes(doneKey)) { diag('这条已出过图（' + list.length + ' 块）'); return; }
             if (!stable) { diag('正文还在写（' + text.length + ' 字符），等写完再出图'); return; }
