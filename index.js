@@ -918,6 +918,7 @@ function renderSeedHint() {
 // 我们盯着新消息，把块里的提示词直接交给酒馆出图 —— 走的是和手动「绘图区」同一条路（已验证可用），
 // 所以不依赖 auto-illustrator 的格式与状态。
 let autoRunning = false;
+let autoIllustrateMode = false;   // 自动出图期间为 true：外观锁只认提示词里出现过的人
 let autoQueue = [];          // 待出图的提示词（先进先出，保证顺序）
 let autoLastPrompts = [];
 
@@ -944,10 +945,10 @@ async function autoPump() {
         while (autoQueue.length) {
             const text = autoQueue.shift();
             setStatus('自动生图：正在出第 1 张（队列还剩 ' + autoQueue.length + ' 张）：' + text.slice(0, 40) + '…', 'cig-ok');
-            // 关键：世界书写出来的提示词已经自带完整外观，这里必须【不要】再叠外观锁 ——
-            // 否则会用「当前出镜的角色 / 主角」的档案覆盖场景里真正要画的那个人（曾经画错成主角、还带上不在场的角色）。
-            const prevSkipLook = skipLookOnce;
-            skipLookOnce = true;
+            // 自动出图：外观锁改为「只锁提示词里真的出现过的人」（见 autoLookFromText），
+            // 不再回退到当前选中/主角 —— 既保留外观锁，又不会画错人。
+            const prevAutoMode = autoIllustrateMode;
+            autoIllustrateMode = true;
             if (s.autoIllustrateLog) await cigLog('【自动生图】开始出图：' + text.slice(0, 60));
             try {
                 await generateFree(text);
@@ -958,7 +959,7 @@ async function autoPump() {
                 setStatus('自动生图 ❌ 失败：' + why, 'cig-err');
                 await cigLog('【自动生图】❌ 失败：' + why);
             } finally {
-                skipLookOnce = prevSkipLook;      // 用完就还回去，别影响手动出图
+                autoIllustrateMode = prevAutoMode;   // 用完还回去，别影响手动出图
             }
             await new Promise(r => setTimeout(r, 1200));
         }
@@ -1190,6 +1191,43 @@ function applyInjection() {
  * 锁定形象模式靠参考图锁外观，这里返回空，免得和参考图打架。
  * 画面里有两个人以上时改走分句写法（见 buildMultiLook）。
  */
+/**
+ * 自动出图专用：只把「提示词里真的提到过」的角色做成外观锁。
+ * 提示词是世界书让模型写的（常是英文描写），插件认不出人时 **不注入任何外观** ——
+ * 这样既保留了外观锁的好处（提示词里写了「胡桃」就自动带上她的长相/服装），
+ * 又不会把当前选中或主角的档案盖到场景人物身上（曾经画错成主角、还带上不在场的角色）。
+ */
+function autoLookFromText(scene = '') {
+    const s = S();
+    if (s.mode !== 'free') return '';
+    const text = String(scene || '').toLowerCase();
+    if (!text) return '';
+    const hits = [];
+    for (const name of Object.keys(s.characters || {})) {
+        const keys = new Set([String(name).toLowerCase()]);
+        for (const a of (s.fanAliases?.[name] || [])) keys.add(String(a).toLowerCase());
+        const id = identityOf(name) || '';
+        const firstTag = String(id.split(',')[0] || '').trim().toLowerCase();
+        if (firstTag) keys.add(firstTag);                       // 身份串第一个 tag 就是 booru 角色 tag
+        for (const k of keys) {
+            if (k && k.length >= 2 && text.includes(k)) { hits.push(name); break; }
+        }
+    }
+    if (!hits.length) return '';
+    const sfwScene = shouldStripNudity(scene);
+    const parts = [];
+    for (const name of hits) {
+        const id = identityOf(name);
+        if (!id) continue;
+        const raw = outfitTagsFor(name);
+        const ot = (sfwScene && !nudeChosenOnPurpose(name)) ? stripNudityTags(raw) : raw;
+        parts.push([id, ot].filter(Boolean).join(', '));
+    }
+    if (!parts.length) return '';
+    const head = hits.length > 1 ? hits.length + 'girls, ' : '';
+    return tidyPrompt(head + parts.join(', '));
+}
+
 function buildLookBlock(scene = '') {
     const s = S();
     if (s.mode !== 'free') return '';
@@ -1331,7 +1369,9 @@ function injectLookIntoPrompt(prompt) {
     body = applySizeToSt(body);
 
     // 外观锁：绘图区那条路不拼；其余按剧情决定要不要剥掉裸露 tag
-    const look = skipLookOnce ? '' : lexCleanLook(buildLookBlock(rawBody));
+    const look = skipLookOnce
+        ? ''
+        : (autoIllustrateMode ? lexCleanLook(autoLookFromText(rawBody)) : lexCleanLook(buildLookBlock(rawBody)));
 
     // 评级按「拼完的成品」再判一次：
     //  - 场景本身 NSFW，或
