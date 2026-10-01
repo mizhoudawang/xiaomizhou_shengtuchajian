@@ -1300,12 +1300,20 @@ function sceneMentions(scene, key) {
  *   · 其余的，只有名字/别名/booru tag 出现在场景文字里才算
  * 这样就不会再把"之前选过、但这张图里没出现"的角色拼进画面。
  */
+/** 这段场景是不是"单人画面"（写了 solo/1girl/独自 之类）。 */
+function isSoloScene(scene) {
+    const t = String(scene || '').toLowerCase();
+    return /\bsolo\b|\b1girl\b|\b1boy\b|\balone\b|by herself|by himself|\bonly\b|独自|一个人|孤身/.test(t);
+}
+
 function presentCast(scene = '', textOnly = false) {
     const list = sceneCast();
     const cur = resolvedName();
     const text = String(scene || '').toLowerCase();
     // 一、场景里写到了谁 → 就只锁谁（其它人一律不进画面）
     const mentioned = list.filter(n => castKeysOf(n).some(k => sceneMentions(scene, k)));
+    // 单人画面：只保留第一个提到的人 —— 否则会把别人也锁进来，solo 照变成"多了一个人"
+    if (mentioned.length && isSoloScene(scene)) return mentioned.slice(0, 1);
     if (mentioned.length) return mentioned;
     // 二、场景里写到了人，但我们认不出是谁（英文名/别名没登记）→ 宁可【不锁】，
     //     也不要拿"当前选中的那个"去顶（这正是"主角被融进别人场景"的根源）。
@@ -1355,14 +1363,14 @@ function buildLookBlock(scene = '', textOnly = false) {
     if (s.mode !== 'free') return '';
     const present = presentCast(scene, textOnly);          // 场景里真的在场的人（谁都没写 → 只含明确选中的那个）
     if (!present.length) return '';              // 场上没人认得出来 → 不锁任何人，按提示词画
-    if (present.length >= 2) {
+    if (present.length >= 2 && !isSoloScene(scene)) {
         const multi = buildMultiLook(present, scene);   // 画面里有两个人以上 → 走多人锁
         // 拼不出多人锁时【谁也不锁】，绝不退回"单人锁" ——
         // 否则会把某一个人的整段外观（常常是玩家主角）当成画面主体描写，
         // 和场景里真正的角色融成一个人（就是把主角和狐娘融合的那个 bug）。
         return multi || '';
     }
-    const name = present[0];
+    const name = present[0];      // 单人画面 / solo：只锁那一个人
     const id = identityOf(name);
     const sfw = shouldStripNudity(scene) && !nudeChosenOnPurpose(name);
     const raw = outfitTagsFor(name);
