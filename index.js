@@ -1041,15 +1041,20 @@ async function autoIllustrateLatest(force = false) {
             s.autoDoneKeys = [...(s.autoDoneKeys || []).slice(-40), key];
             save();
         }
-        await autoIllustrate(text);
+        await autoIllustrate(text, key);
         return true;
     }
     return false;
 }
 
-async function autoIllustrate(text) {
+async function autoIllustrate(text, key = '') {
     const s = S();
     if (!s.autoIllustrate) return;
+    if (key) {
+        if (autoHandled.has(key)) return;            // 这条消息已经出过图了
+        autoHandled.add(key);
+        if (autoHandled.size > 300) autoHandled = new Set([...autoHandled].slice(-120));
+    }
     const all = extractPrompts(text);
     if (!all.length) return;
     const plan = planPrompts(all, { max: s.autoIllustrateMax, last: autoLastPrompts });
@@ -3912,19 +3917,10 @@ function buildUI() {
     let cigBusyGenerating = false;
     eventSource.on(event_types.GENERATION_STARTED, () => { cigBusyGenerating = true; });
     eventSource.on(event_types.GENERATION_ENDED, () => {
-        cigBusyGenerating = false;
-        const s = S();
-        if (!s.autoIllustrate) return;
-        const wait = Math.max(500, Number(s.autoIllustrateDelay) || 2500);
-        setTimeout(() => { autoIllustrateLatest().catch(() => {}); }, wait);
+        cigBusyGenerating = false;      // 只清标记，出图交给轮询（避免多条路径重复触发）
     });
-    eventSource.on(event_types.MESSAGE_RECEIVED, () => {
-        const s = S();
-        if (!s.autoIllustrate) return;
-        if (cigBusyGenerating) return;                       // 还在写正文，先别抢
-        const wait = Math.max(500, Number(s.autoIllustrateDelay) || 2500);
-        setTimeout(() => { if (!cigBusyGenerating) autoIllustrateLatest().catch(() => {}); }, wait);
-    });
+    // MESSAGE_RECEIVED 不再触发出图（统一由 3 秒轮询处理，防止同一条消息被出多次图）
+    eventSource.on(event_types.MESSAGE_RECEIVED, () => {});
     // 双保险：每 3 秒自己扫一遍最新消息（有些生成方式不发 MESSAGE_RECEIVED，只靠事件会漏）
     let autoWatchKey = '';
     let autoPrevLen = -1;          // 上一条 AI 消息的长度（判断是否还在流式输出）
@@ -3952,7 +3948,7 @@ function buildUI() {
             if ((s.autoDoneKeys || []).includes(doneKey)) return;
             s.autoDoneKeys = [...(s.autoDoneKeys || []).slice(-60), doneKey];
             save();
-            await autoIllustrate(text);
+            await autoIllustrate(text, doneKey);
         } catch (e) { console.warn('[CharImageGen] 自动扫描出错', e); }
     }, 3000);
         eventSource.on(event_types.MESSAGE_EDITED, handleMessage);
