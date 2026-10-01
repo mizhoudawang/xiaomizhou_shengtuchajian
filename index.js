@@ -1202,10 +1202,44 @@ function castKeysOf(name) {
     const s = S();
     const keys = new Set([String(name || '').toLowerCase()]);
     for (const a of (s.fanAliases?.[name] || [])) keys.add(String(a).toLowerCase());
+    // 玩家主角：还要认酒馆里 persona 的名字 / 玩家档的别名
+    if (name === PLAYER || name === '__player__') {
+        try { keys.add(String(playerLabel() || '').toLowerCase()); } catch { }
+        for (const a of (s.fanAliases?.['__player__'] || [])) keys.add(String(a).toLowerCase());
+    }
     const id = identityOf(name) || '';
     const firstTag = String(id.split(',')[0] || '').trim().toLowerCase();
     if (firstTag) keys.add(firstTag);
     return [...keys].filter(k => k && k.length >= 2);
+}
+
+/** 两个拉丁词像不像（拼写容错）：差 1~2 个字母也算同一个人，例如 Ailiya ↔ Aliya。 */
+function looksSameLatin(a, b) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    if (!/^[a-z][a-z\s.'-]*$/.test(a) || !/^[a-z][a-z\s.'-]*$/.test(b)) return false;
+    if (Math.abs(a.length - b.length) > 2) return false;
+    // 简易编辑距离（阈值 2）
+    const m = a.length, n2 = b.length;
+    const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n2).fill(0)]);
+    for (let j = 0; j <= n2; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n2; j++) {
+            dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        }
+    }
+    return dp[m][n2] <= 2;
+}
+
+/** 场景文字里有没有出现这个名字（含拼写容错）。 */
+function sceneMentions(scene, key) {
+    const text = String(scene || '').toLowerCase();
+    if (text.includes(key)) return true;
+    if (key.length < 5) return false;
+    for (const word of text.split(/[^a-z']+/)) {
+        if (word.length >= 4 && looksSameLatin(word, key)) return true;
+    }
+    return false;
 }
 
 /**
@@ -1219,7 +1253,7 @@ function presentCast(scene = '', textOnly = false) {
     const cur = resolvedName();
     const text = String(scene || '').toLowerCase();
     // 一、场景里写到了谁 → 就只锁谁（其它人一律不进画面）
-    const mentioned = list.filter(n => castKeysOf(n).some(k => text.includes(k)));
+    const mentioned = list.filter(n => castKeysOf(n).some(k => sceneMentions(scene, k)));
     if (mentioned.length) return mentioned;
     // 二、场景里写到了人，但我们认不出是谁（英文名/别名没登记）→ 宁可【不锁】，
     //     也不要拿"当前选中的那个"去顶（这正是"主角被融进别人场景"的根源）。
