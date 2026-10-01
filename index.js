@@ -1036,7 +1036,7 @@ async function autoIllustrateLatest(force = false) {
         const text = String(m.mes || '');
         if (!text || text.startsWith('[自动生图]')) continue;
         if (!extractPrompts(text).length) continue;
-        const key = String(m.send_date || '') + '#' + i;
+        const key = msgKeyOf(m, i);
         if (!force) {
             if ((s.autoDoneKeys || []).includes(key)) return false;   // 这条已经出过了
             s.autoDoneKeys = [...(s.autoDoneKeys || []).slice(-40), key];
@@ -1048,14 +1048,21 @@ async function autoIllustrateLatest(force = false) {
     return false;
 }
 
+/** 消息的唯一键 —— 绝不能为空！为空就等于"去重失效"，同一条消息会被反复出图（曾经一回合十几张）。 */
+function msgKeyOf(m, i = 0) {
+    const t = String((m && m.mes) || '');
+    const sd = m && m.send_date ? String(m.send_date) : '';
+    const fp = t.slice(0, 32).replace(/\s+/g, '');
+    return (sd || 'i' + i) + '#' + t.length + '#' + fp;
+}
+
 async function autoIllustrate(text, key = '') {
     const s = S();
     if (!s.autoIllustrate) return;
-    if (key) {
-        if (autoHandled.has(key)) return;            // 这条消息已经出过图了
-        autoHandled.add(key);
-        if (autoHandled.size > 300) autoHandled = new Set([...autoHandled].slice(-120));
-    }
+    const k = key || ('t' + String(text || '').length + '#' + String(text || '').slice(0, 32).replace(/\s+/g, ''));
+    if (autoHandled.has(k)) return;                  // 这条消息已经出过图了
+    autoHandled.add(k);
+    if (autoHandled.size > 300) autoHandled = new Set([...autoHandled].slice(-120));
     const all = extractPrompts(text);
     if (!all.length) return;
     const plan = planPrompts(all, { max: s.autoIllustrateMax, last: autoLastPrompts });
@@ -3937,7 +3944,7 @@ function buildUI() {
             if (!text) return;
             const stable = (text.length === autoPrevLen);       // 长度没变 = 已经写完；否则还在流式输出
             autoPrevLen = text.length;
-            const doneKey = String(m.send_date || '');          // 去重键：只看消息（别把长度算进去！）
+            const doneKey = msgKeyOf(m, chat.length - 1);      // 去重键：永不空（时间+长度+指纹）
             const key = doneKey + '#' + Math.round(text.length / 50);
             const list = extractPrompts(text);
             if (key !== autoWatchKey) {
