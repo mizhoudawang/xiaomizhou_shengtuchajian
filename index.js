@@ -974,6 +974,7 @@ function renderSeedHint() {
 // 我们盯着新消息，把块里的提示词直接交给酒馆出图 —— 走的是和手动「绘图区」同一条路（已验证可用），
 // 所以不依赖 auto-illustrator 的格式与状态。
 let autoRunning = false;
+let autoHandled = new Set();  // 已处理过的消息键（所有路径共用，防止同一条消息出多次图）
 let autoIllustrateMode = false;   // 自动出图期间为 true：外观锁只认提示词里出现过的人
 let autoQueue = [];          // 待出图的提示词（先进先出，保证顺序）
 let autoLastPrompts = [];
