@@ -159,6 +159,7 @@ const DEFAULTS = {
     seedValue: 0,           // 固定种子的值
     lastSeed: -1,           // 上次出图真正用的种子（-1 = 随机）
     autoIllustrate: true,   // 盯住消息里的提示词块，自动按它出图（世界书负责出块，插件负责出图）
+    autoRegisterOutfit: true,  // 剧情登记时是否把"这套衣服"写进角色档案（关掉可防服装被剧情改乱）
     autoIllustrateMax: 2,   // 一条消息最多自动出几张
     autoIllustrateLog: false,   // 是否把每次自动出图都写进聊天（默认只写失败）
     autoIllustrateDelay: 2500,  // 等消息流结束多久再动手（毫秒）
@@ -858,6 +859,24 @@ function makeRoomForVariant(baseName) {
         keys = keys.filter(k => k !== victim);
     }
     return { ok: true };
+}
+
+/**
+ * 这套衣服是不是"别人正穿着的那一套"（标签完全一样）——
+ * 防止同一次剧情登记把同一套衣服同时挂到两个人身上（曾经主角被穿上学徒装、和狐娘撞衫）。
+ */
+function outfitClashFor(who, outfitName) {
+    const s = S();
+    const mine = String(s.outfits?.[outfitName]?.tags || '').trim().toLowerCase();
+    if (!mine) return false;
+    const wears = (ent) => ent && ent.outfit && ent.outfit !== outfitName
+        && String(s.outfits?.[ent.outfit]?.tags || '').trim().toLowerCase() === mine;
+    for (const [w, e] of Object.entries(s.characters || {})) {
+        if (w === who) continue;
+        if (wears(e)) return true;
+    }
+    if (who !== PLAYER && wears(s.player)) return true;
+    return false;
 }
 
 /** 同名但内容不同时，自动派生成差分「名字·2」。 */
@@ -1909,8 +1928,17 @@ function mergeCast(payload) {
         // 记下这个角色当前穿的是哪一套
         const ownerKey = owner && isPlayerName(owner) ? PLAYER : owner;
         if (ownerKey && subjectEntry(ownerKey)) {
-            subjectEntry(ownerKey).outfit = name;
-            log.owned.push(`${isPlayer(ownerKey) ? '🧍' + playerLabel() : ownerKey}→${name}`);
+            const put = () => {
+                subjectEntry(ownerKey).outfit = name;
+                log.owned.push(`${isPlayer(ownerKey) ? '🧍' + playerLabel() : ownerKey}→${name}`);
+            };
+            if (S().autoRegisterOutfit === false) {
+                log.outfitSkipped = (log.outfitSkipped || 0) + 1;      // 用户关了剧情改服装
+            } else if (outfitClashFor(ownerKey, name)) {
+                log.outfitClash = (log.outfitClash || 0) + 1;          // 防撞衫：别人已经穿着同一套
+            } else {
+                put();
+            }
         }
         if (!owner) s.currentOutfit = name;
     }
