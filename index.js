@@ -944,6 +944,10 @@ async function autoPump() {
         while (autoQueue.length) {
             const text = autoQueue.shift();
             setStatus('自动生图：正在出第 1 张（队列还剩 ' + autoQueue.length + ' 张）：' + text.slice(0, 40) + '…', 'cig-ok');
+            // 关键：世界书写出来的提示词已经自带完整外观，这里必须【不要】再叠外观锁 ——
+            // 否则会用「当前出镜的角色 / 主角」的档案覆盖场景里真正要画的那个人（曾经画错成主角、还带上不在场的角色）。
+            const prevSkipLook = skipLookOnce;
+            skipLookOnce = true;
             if (s.autoIllustrateLog) await cigLog('【自动生图】开始出图：' + text.slice(0, 60));
             try {
                 await generateFree(text);
@@ -953,6 +957,8 @@ async function autoPump() {
                 const why = (e && e.message ? e.message : String(e));
                 setStatus('自动生图 ❌ 失败：' + why, 'cig-err');
                 await cigLog('【自动生图】❌ 失败：' + why);
+            } finally {
+                skipLookOnce = prevSkipLook;      // 用完就还回去，别影响手动出图
             }
             await new Promise(r => setTimeout(r, 1200));
         }
