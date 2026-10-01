@@ -1214,7 +1214,7 @@ function castKeysOf(name) {
  *   · 其余的，只有名字/别名/booru tag 出现在场景文字里才算
  * 这样就不会再把"之前选过、但这张图里没出现"的角色拼进画面。
  */
-function presentCast(scene = '') {
+function presentCast(scene = '', textOnly = false) {
     const list = sceneCast();
     const cur = resolvedName();
     const text = String(scene || '').toLowerCase();
@@ -1227,6 +1227,8 @@ function presentCast(scene = '') {
         || /[\u4e00-\u9fff]{2,4}(?=站在|坐在|说道|说着|走到|回头|看着|笑着|穿着|开口|点头|转身)/.test(scene);
     if (hasProperNoun) return [];
     // 三、确认场上没有别人 → 才用你明确选中的那一个（手动"锁长相"的原始用途）
+    //     textOnly=true（自动出图）时连这一步都不做：宁可一个都不锁，也不拿选中的人去顶。
+    if (textOnly) return [];
     const hard = list.filter(n => cur && n === cur);
     return hard;
 }
@@ -1262,10 +1264,10 @@ function autoLookFromText(scene = '') {
     return tidyPrompt(head + parts.join(', '));
 }
 
-function buildLookBlock(scene = '') {
+function buildLookBlock(scene = '', textOnly = false) {
     const s = S();
     if (s.mode !== 'free') return '';
-    const present = presentCast(scene);          // 场景里真的在场的人（谁都没写 → 只含明确选中的那个）
+    const present = presentCast(scene, textOnly);          // 场景里真的在场的人（谁都没写 → 只含明确选中的那个）
     if (!present.length) return '';              // 场上没人认得出来 → 不锁任何人，按提示词画
     if (present.length >= 2) {
         const multi = buildMultiLook(present, scene);   // 画面里有两个人以上 → 走多人锁
@@ -1412,7 +1414,11 @@ function injectLookIntoPrompt(prompt) {
     body = applySizeToSt(body);
 
     // 外观锁：绘图区那条路不拼；其余按剧情决定要不要剥掉裸露 tag
-    const look = (skipLookOnce || autoIllustrateMode) ? '' : lexCleanLook(buildLookBlock(rawBody));
+    // 自动出图：只锁提示词里真的写了名字的人（不写就不锁，也绝不用选中的人顶）——
+    // 这样 Ailiya 的白狐发色能保住，同时不会把主角融进别人的场景。
+    const look = skipLookOnce
+        ? ''
+        : lexCleanLook(buildLookBlock(rawBody, !!autoIllustrateMode));
 
     // 评级按「拼完的成品」再判一次：
     //  - 场景本身 NSFW，或
