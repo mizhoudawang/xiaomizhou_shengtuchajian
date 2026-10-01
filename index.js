@@ -1306,6 +1306,34 @@ function isSoloScene(scene) {
     return /\bsolo\b|\b1girl\b|\b1boy\b|\balone\b|by herself|by himself|\bonly\b|独自|一个人|孤身/.test(t);
 }
 
+/**
+ * 这张图该有几个人 —— 以提示词自己写的人数为准（世界书会写 1girl / 2girls / Nboys）。
+ * 返回 0 表示"没写，判断不了"。
+ */
+function declaredCount(scene) {
+    const t = String(scene || '').toLowerCase();
+    if (/\bsolo\b|\balone\b|独自|一个人|孤身/.test(t)) return 1;
+    const g = t.match(/(\d+)\s*girls?\b/);
+    const b = t.match(/(\d+)\s*boys?\b/);
+    const gb = t.match(/(\d+)\s*others?\b/);
+    const n1 = g ? Number(g[1]) : 0, n2 = b ? Number(b[1]) : 0, n3 = gb ? Number(gb[1]) : 0;
+    if (n1 + n2 + n3 > 0) return Math.max(1, Math.min(6, n1 + n2 + n3));
+    // 只写了 1girl（没有多人标签）→ 单人；1girl + 1boy → 两个人
+    if (/\b1girl\b/.test(t)) return /\b1boy\b/.test(t) ? 2 : 1;
+    if (/\b1boy\b/.test(t)) return 1;
+    return 0;
+}
+
+/** 某个名字在文字里第一次出现的位置（没出现返回一个大数）。 */
+function firstIndexOf(scene, name) {
+    const text = String(scene || '').toLowerCase();
+    let best = Number.MAX_SAFE_INTEGER;
+    for (const k of castKeysOf(name)) {
+        if (sceneMentions(scene, k)) { const i = text.indexOf(k); best = Math.min(best, i < 0 ? Number.MAX_SAFE_INTEGER - 1 : i); }
+    }
+    return best;
+}
+
 function presentCast(scene = '', textOnly = false) {
     const list = sceneCast();
     const cur = resolvedName();
@@ -1314,7 +1342,15 @@ function presentCast(scene = '', textOnly = false) {
     const mentioned = list.filter(n => castKeysOf(n).some(k => sceneMentions(scene, k)));
     // 单人画面：只保留第一个提到的人 —— 否则会把别人也锁进来，solo 照变成"多了一个人"
     if (mentioned.length && isSoloScene(scene)) return mentioned.slice(0, 1);
-    if (mentioned.length) return mentioned;
+    // 提示词写了几个人，就最多锁几个人（多出来的按"在文字里出现的先后"截掉）
+    if (mentioned.length) {
+        const want = declaredCount(scene);
+        if (want > 0 && mentioned.length > want) {
+            const ordered = mentioned.slice().sort((a, b) => firstIndexOf(scene, a) - firstIndexOf(scene, b));
+            return ordered.slice(0, want);
+        }
+        return mentioned;
+    }
     // 二、场景里写到了人，但我们认不出是谁（英文名/别名没登记）→ 宁可【不锁】，
     //     也不要拿"当前选中的那个"去顶（这正是"主角被融进别人场景"的根源）。
     const hasProperNoun = /[A-Z][a-z]{2,}/.test(scene)
