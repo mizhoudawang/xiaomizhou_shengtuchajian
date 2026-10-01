@@ -160,6 +160,7 @@ const DEFAULTS = {
     lastSeed: -1,           // 上次出图真正用的种子（-1 = 随机）
     autoIllustrate: true,   // 盯住消息里的提示词块，自动按它出图（世界书负责出块，插件负责出图）
     autoIllustrateMax: 2,   // 一条消息最多自动出几张
+    autoIllustrateLog: false,   // 是否把每次自动出图都写进聊天（默认只写失败）
     autoIllustrateDelay: 2500,  // 等消息流结束多久再动手（毫秒）
     characters: {},
     outfits: {},
@@ -240,7 +241,7 @@ const DEFAULTS = {
     panelSize: null,         // 面板尺寸 {w,h}（右下角拖出来的）
     // —— 裸体 / 服装兜底 ——
     nudeOutfitName: '裸体',  // 服装库里这套「裸体」：出现在服装下拉里，可分配给任何角色
-    nudeAsDefault: true,     // 服装未知（含选「跟随剧情」）时默认裸体；未成年角色一律不裸
+    nudeAsDefault: false,    // 服装未知时是否默认裸体（默认关：对分享出去更安全；打开就回到"服装未知=裸体"）
     // —— 扶她解剖（提示词层，就是为了治「jj 糊成一团 / 长在别人身上」） ——
     futaAnatomy: 'penis, testicles',
     futaNegatives: 'extra penis, fused genitals, malformed genitals, mutated genitals, conjoined',
@@ -943,11 +944,11 @@ async function autoPump() {
         while (autoQueue.length) {
             const text = autoQueue.shift();
             setStatus('自动生图：正在出第 1 张（队列还剩 ' + autoQueue.length + ' 张）：' + text.slice(0, 40) + '…', 'cig-ok');
-            await cigLog('【自动生图】开始出图：' + text.slice(0, 60));
+            if (s.autoIllustrateLog) await cigLog('【自动生图】开始出图：' + text.slice(0, 60));
             try {
                 await generateFree(text);
                 setStatus('自动生图 ✅ 已完成：' + text.slice(0, 50) + (text.length > 50 ? '…' : ''), 'cig-ok');
-                await cigLog('【自动生图】✅ 已提交：' + text.slice(0, 60));
+                if (s.autoIllustrateLog) await cigLog('【自动生图】✅ 已提交：' + text.slice(0, 60));
             } catch (e) {
                 const why = (e && e.message ? e.message : String(e));
                 setStatus('自动生图 ❌ 失败：' + why, 'cig-err');
