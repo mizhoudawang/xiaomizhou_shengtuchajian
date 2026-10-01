@@ -834,6 +834,32 @@ function inferOutfitSources() {
     return fixed;
 }
 
+/**
+ * 同一套衣服最多保留几条差分（不含原装）—— 防止自动登记把服装库刷爆（曾经「灰法师袍」刷到 15 套）。
+ * 超出时优先顶掉【没人穿】的最旧一条；如果全都有人穿，就不新建、改成更新最旧那条的标签。
+ */
+const MAX_VARIANTS = 3;
+
+function variantsOf(baseName) {
+    const s = S();
+    return Object.keys(s.outfits).filter(k => k !== baseName && outfitBaseOf(k, s.outfits[k]) === baseName);
+}
+
+/** 给某套衣服腾出位置：返回 true 表示可以新建，false 表示"别再建了，去更新 returned 那条"。 */
+function makeRoomForVariant(baseName) {
+    const s = S();
+    const worn = new Set(Object.values(s.characters || {}).map(e => e && e.outfit).filter(Boolean));
+    if (s.player && s.player.outfit) worn.add(s.player.outfit);
+    let keys = variantsOf(baseName);
+    while (keys.length >= MAX_VARIANTS) {
+        const victim = keys.find(k => !worn.has(k));       // 优先删没人穿的
+        if (!victim) return { ok: false, reuse: keys[0] };  // 全都有人穿 → 不新建
+        delete s.outfits[victim];
+        keys = keys.filter(k => k !== victim);
+    }
+    return { ok: true };
+}
+
 /** 同名但内容不同时，自动派生成差分「名字·2」。 */
 function uniqueOutfitName(base) {
     const s = S();
@@ -865,6 +891,13 @@ function addOutfit(name, tags, src = '手动') {
     if (hit.kind === 'same') return { name: hit.name, reused: true, why: hit.reason };
     if (hit.kind === 'variant') {
         const base = outfitBaseOf(hit.name, s.outfits[hit.name]);
+        const room = makeRoomForVariant(base);
+        if (!room.ok) {
+            // 差分满了、而且每条都有人穿 → 不新建，直接更新最旧那条，避免服装库无限膨胀
+            const old = room.reuse;
+            s.outfits[old] = { tags: body, base, src };
+            return { name: old, reused: false, grouped: base, capped: true, why: hit.reason };
+        }
         const n = uniqueOutfitName(base);
         s.outfits[n] = { tags: body, base, src };
         return { name: n, reused: false, grouped: base, why: hit.reason };
@@ -3508,7 +3541,8 @@ function buildUI() {
         if (res.reused) {
             msg('和已有服装「' + res.name + '」是同一套' + (res.why ? '（' + res.why + '）' : '') + '，没有重复存 —— 真要新建就勾上面的「强制新建分类」', 'cig-ok');
         } else if (res.grouped) {
-            msg('「' + res.name + '」收成了「' + res.grouped + '」的差分' + (res.why ? '（' + res.why + '）' : ''), 'cig-ok');
+            msg('「' + res.name + '」收成了「' + res.grouped + '」的差分' + (res.why ? '（' + res.why + '）' : '')
+                + (res.capped ? '　·　差分已达上限，改成了更新最旧那条' : ''), 'cig-ok');
         } else {
             msg('已存为新分类「' + res.name + '」', 'cig-ok');
         }
