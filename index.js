@@ -1363,15 +1363,17 @@ function injectLookIntoPrompt(prompt) {
     const nsfw = isNsfwText(rawBody);
     syncRatingPrefix(nsfw);
     const wantRating = (S().nsfwRating !== false && nsfw) ? String(S().ratingNsfw || 'explicit') : '';
-    let body = cfg.hook ? lexClean(applyFanNameMap(rawBody), { dedupe: false }) : applyFanNameMap(rawBody);
+    // 自动出图（世界书驱动的提示词）：原样送出，一个 tag 都不加、不改 ——
+    // 词库钩子(lexClean)和名字映射(applyFanNameMap)会按名字补 booru tag，认错就会塞进别人/主角的 tag。
+    let body = autoIllustrateMode
+        ? rawBody
+        : (cfg.hook ? lexClean(applyFanNameMap(rawBody), { dedupe: false }) : applyFanNameMap(rawBody));
     if (wantRating) body = swapRatingTag(body, wantRating);
     // 尺寸：把提示词里的画幅解析出来，真的设成这次生成的分辨率（并去掉那串说明）
     body = applySizeToSt(body);
 
     // 外观锁：绘图区那条路不拼；其余按剧情决定要不要剥掉裸露 tag
-    const look = skipLookOnce
-        ? ''
-        : (autoIllustrateMode ? lexCleanLook(autoLookFromText(rawBody)) : lexCleanLook(buildLookBlock(rawBody)));
+    const look = (skipLookOnce || autoIllustrateMode) ? '' : lexCleanLook(buildLookBlock(rawBody));
 
     // 评级按「拼完的成品」再判一次：
     //  - 场景本身 NSFW，或
