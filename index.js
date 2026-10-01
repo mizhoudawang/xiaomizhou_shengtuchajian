@@ -1197,6 +1197,35 @@ function applyInjection() {
  * 这样既保留了外观锁的好处（提示词里写了「胡桃」就自动带上她的长相/服装），
  * 又不会把当前选中或主角的档案盖到场景人物身上（曾经画错成主角、还带上不在场的角色）。
  */
+/** 一个角色能被认出来的所有写法：中文名、别名、身份串里的 booru 角色 tag。 */
+function castKeysOf(name) {
+    const s = S();
+    const keys = new Set([String(name || '').toLowerCase()]);
+    for (const a of (s.fanAliases?.[name] || [])) keys.add(String(a).toLowerCase());
+    const id = identityOf(name) || '';
+    const firstTag = String(id.split(',')[0] || '').trim().toLowerCase();
+    if (firstTag) keys.add(firstTag);
+    return [...keys].filter(k => k && k.length >= 2);
+}
+
+/**
+ * 场景里真的在场的人：
+ *   · 明确选中的那一个 → 永远算在场（这是面板手动出图"锁长相"的原始用途）
+ *   · 其余的，只有名字/别名/booru tag 出现在场景文字里才算
+ * 这样就不会再把"之前选过、但这张图里没出现"的角色拼进画面。
+ */
+function presentCast(scene = '') {
+    const list = sceneCast();
+    const cur = resolvedName();
+    const text = String(scene || '').toLowerCase();
+    const keep = list.filter(n => {
+        if (cur && n === cur) return true;
+        return castKeysOf(n).some(k => text.includes(k));
+    });
+    const hard = list.filter(n => cur && n === cur);
+    return keep.length ? keep : hard;
+}
+
 function autoLookFromText(scene = '') {
     const s = S();
     if (s.mode !== 'free') return '';
@@ -1232,7 +1261,7 @@ function buildLookBlock(scene = '') {
     const s = S();
     if (s.mode !== 'free') return '';
     if (s.multiChar) {
-        const multi = buildMultiLook(sceneCast(), scene);
+        const multi = buildMultiLook(presentCast(scene), scene);   // 只拼场景里真的在场的人
         if (multi) return multi;
     }
     const name = resolvedName();
@@ -1398,7 +1427,7 @@ function injectLookIntoPrompt(prompt) {
     // 外观锁已经给了权威人数（3girls 这种），正文里对不上的计数 tag 必须清掉；
     // 扁平动作句要绑到位置上，否则「谁在做什么」全看模型猜
     if (look) {
-        body = bindActionsToCast(body, sceneCast().map(n => ({
+        body = bindActionsToCast(body, presentCast(rawBody).map(n => ({
             identity: identityOf(n),
             outfit: outfitTagsFor(n),
         })));
