@@ -1057,6 +1057,7 @@ function msgKeyOf(m, i = 0) {
 }
 
 async function autoIllustrate(text, key = '') {
+    return;   // 【已按要求硬关闭】
     const s = S();
     if (!s.autoIllustrate) return;
     // 全局速率闸：3 分钟内最多出「每条上限 × 2」张 —— 兜底防刷（不管触发/去重哪一环出问题）
@@ -3933,17 +3934,16 @@ function buildUI() {
     // 关键：必须在「这次生成彻底结束」之后再出图。
     // 之前挂在 MESSAGE_RECEIVED 上，消息还在流式输出的时候就动手，酒馆会拒掉（绘世里看不到任何请求）。
     let cigBusyGenerating = false;
-    eventSource.on(event_types.GENERATION_STARTED, () => { cigBusyGenerating = true; });
-    eventSource.on(event_types.GENERATION_ENDED, () => {
-        cigBusyGenerating = false;      // 只清标记，出图交给轮询（避免多条路径重复触发）
-    });
+    /* 自动出图已硬关闭，事件挂钩移除 */
+    /* 自动出图已硬关闭，事件挂钩移除 */
     // MESSAGE_RECEIVED 不再触发出图（统一由 3 秒轮询处理，防止同一条消息被出多次图）
-    eventSource.on(event_types.MESSAGE_RECEIVED, () => {});
+    /* 自动出图已硬关闭，事件挂钩移除 */
     // 双保险：每 3 秒自己扫一遍最新消息（有些生成方式不发 MESSAGE_RECEIVED，只靠事件会漏）
     let autoWatchKey = '';
     let autoPrevLen = -1;          // 上一条 AI 消息的长度（判断是否还在流式输出）
     if (window.__cigAutoTimer) clearInterval(window.__cigAutoTimer);   // 只允许一个轮询（重复注册会把张数翻倍）
     window.__cigAutoTimer = setInterval(async () => {
+            return;   // 【已按要求硬关闭】自动出图不做了 —— 改代码而不是改设置，浏览器覆盖不了
         try {
             const s = S();
             if (!s.autoIllustrate) return;
