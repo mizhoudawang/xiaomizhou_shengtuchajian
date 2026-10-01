@@ -3949,22 +3949,31 @@ function buildUI() {
             if (!s.autoIllustrate) return;
             if (cigBusyGenerating) return;                   // 正文还没写完，等它
             const chat = (getContext().chat) || [];
-            const m = chat[chat.length - 1];
-            if (!m || m.is_user || m.is_system) return;
-            const text = String(m.mes || '');
-            if (!text) return;
-            const stable = (text.length === autoPrevLen);       // 长度没变 = 已经写完；否则还在流式输出
-            autoPrevLen = text.length;
-            const doneKey = msgKeyOf(m, chat.length - 1);      // 去重键：永不空（时间+长度+指纹）
-            const key = doneKey + '#' + Math.round(text.length / 50);
-            const list = extractPrompts(text);
-            if (key !== autoWatchKey) {
-                autoWatchKey = key;
-                $('#cig-autogen-manual-msg').text('自动扫描：最新一条 AI 消息 ' + text.length + ' 字符，认出 ' + list.length + ' 条提示词' + (list.length ? '，已交队列' : '（没认出外壳，可点「从最近消息里抓一段」看看）'));
+            // 往回找最多 4 条：跳过用户/系统消息（插件自己的日志也是系统消息，不能挡住后面那条 AI 回复）
+            let picked = null, pickedIdx = -1;
+            for (let i = chat.length - 1; i >= 0 && i >= chat.length - 4; i--) {
+                const mm = chat[i];
+                if (!mm || mm.is_user || mm.is_system) continue;
+                const tx = String(mm.mes || '');
+                if (!tx) continue;
+                if (!extractPrompts(tx).length) continue;
+                picked = mm; pickedIdx = i; break;
             }
-            if (!list.length) return;
-            if (!stable) return;                                // 正文还在往外蹦字 → 先别出图（否则一轮会出几十张）
-            if ((s.autoDoneKeys || []).includes(doneKey)) return;
+            const diag = (msg) => { try { $('#cig-autogen-manual-msg').text('[自动扫描] ' + msg); } catch { } };
+            if (!picked) { diag('最近 4 条里没有带提示词块的 AI 消息'); return; }
+            const text = String(picked.mes || '');
+            const doneKey = msgKeyOf(picked, pickedIdx);
+            const list = extractPrompts(text);
+            // 稳定性：长度与上一 tick 相同就算写完；或者消息已经存在超过 20 秒也认为写完（避免卡死）
+            const age = picked.send_date ? (Date.now() - Number(picked.send_date)) : 0;
+            const stable = (text.length === autoPrevLen) || (age > 20000);
+            autoPrevLen = text.length;
+            if ((s.autoDoneKeys || []).includes(doneKey)) { diag('这条已出过图（' + list.length + ' 块）'); return; }
+            if (!stable) { diag('正文还在写（' + text.length + ' 字符），等写完再出图'); return; }
+            const cap = Math.max(1, Math.min(6, Number(s.autoIllustrateMax) || 2)) * 2;
+            const b = s.autoBudget && (Date.now() - (s.autoBudget.ts || 0) < 180000) ? s.autoBudget : { ts: Date.now(), n: 0 };
+            if (b.n >= cap) { diag('3 分钟内已出 ' + b.n + ' 张（上限 ' + cap + '），暂停出图'); return; }
+            diag('认出 ' + list.length + ' 块 → 开始出图（3 分钟内已出 ' + b.n + '/' + cap + '）');
             s.autoDoneKeys = [...(s.autoDoneKeys || []).slice(-60), doneKey];
             save();
             await autoIllustrate(text, doneKey);
