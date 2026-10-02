@@ -503,11 +503,8 @@ function displayNameOf(name) {
  * 这是「三个人在做」的正解 —— 模型登记漏了谁都不怕，正文提到就得画。
  * 长的名字优先匹配（「美咲子」命中后就不再算「美咲」），并且丢掉被更长名字包含的短名。
  */
-function autoCastFromText(sceneText = null) {
-    // 有具体提示词（这张图到底画什么）就用它认人；只有预览之类没有提示词时才回退到最近正文。
-    // 原来一律扫最近 3 条消息：多人的画面里，只出现在提示词、没出现在正文的名字
-    // （莉莉丝这种）压根进不了候选 → 只有常驻主角拿到外观锁 → 模型拿主角的脸填所有人。
-    const scene = sceneText ? String(sceneText) : recentSceneText(3);
+function autoCastFromText() {
+    const scene = recentSceneText(3);
     if (!scene) return [];
     const subjects = allSubjects().map(n => ({ id: n, label: displayNameOf(n) }));
     // 同人角色的外号/英文名也当名字用（「兔兔」→阿米娅、「Hu Tao」→胡桃）。
@@ -527,11 +524,11 @@ function autoCastFromText(sceneText = null) {
 }
 
 /** 玩家本人是不是在画面里：正文写了玩家名，或者用户这轮写的是自己的动作。 */
-function playerLikelyInFrame(sceneText = null) {
+function playerLikelyInFrame() {
     if (!hasLookData(PLAYER)) return false;
     if (isPlayer(S().activeChar)) return true;
     const label = playerLabel();
-    const scene = sceneText ? String(sceneText) : recentSceneText(3);
+    const scene = recentSceneText(3);
     if (label && label.length >= 2 && matchSubjects(scene, [{ id: PLAYER, label }]).length) return true;
     try {
         const chat = getContext()?.chat;
@@ -548,17 +545,13 @@ function playerLikelyInFrame(sceneText = null) {
  * 优先级：手动勾选的名单 > 正文自动认人（+ 玩家）> 模型登记名单 > 当前角色。
  * 三个人以上的画面之所以出不来，最常见就是登记块漏了人 —— 所以正文提到谁就算谁。
  */
-function sceneCast(scene = null) {
+function sceneCast() {
     const s = S();
     const override = castOverrideOf().filter(n => subjectExists(n));
     if (override.length) return override.slice(0, 6);
 
-    // 认人必须用「这张图的提示词」。原来这里调用 autoCastFromText() / playerLikelyInFrame()
-    // 都没把 scene 传下去，于是永远拿最近聊天正文认人 —— 多个人的画面里，只出现在
-    // 提示词、没出现在正文的名字（莉莉丝这种）压根进不了候选，只有常驻主角拿到外观锁，
-    // 模型就拿主角的脸去填所有人（实测到的「角色混了」）。
-    const keep = autoCastFromText(scene);
-    if (s.autoAddPlayer !== false && !keep.includes(PLAYER) && playerLikelyInFrame(scene)) keep.push(PLAYER);
+    const keep = autoCastFromText();
+    if (s.autoAddPlayer !== false && !keep.includes(PLAYER) && playerLikelyInFrame()) keep.push(PLAYER);
 
     // 正文里一个人名都没认出来（第一人称叙事很常见）→ 退回模型登记的名单
     if (keep.length < 2) {
@@ -631,13 +624,7 @@ function buildMultiLook(names, scene = '') {
         }
     });
     if (!lines.length) return '';
-    // 人数 tag 不能把扶她算成第二类主体。
-    // `1futanari, 2girls`（两个独立计数 = 3 个主体）会让模型为了凑出那个 futanari
-    // 给画面里的女性也长一根 —— 实测：两人场景（扶她主角 + 魅魔），魅魔长出了 jj。
-    // 正确写法是全部按女孩计数，futanari 只作修饰词：`2girls, futanari`。
-    // 谁有谁没有由上面各自的分句（futaClause / femaleClause）负责说清楚。
-    const countTag = countTagOf(nouns, 0) + (futas > 0 ? ', futanari' : '');
-    return [countTag, ...lines].filter(Boolean).join('\n');
+    return [countTagOf(nouns, futas), ...lines].filter(Boolean).join('\n');
 }
 
 /** 非 NSFW 剧情时要不要把服装里的裸露 tag 剥掉（默认剥）。 */
@@ -1345,12 +1332,7 @@ function sceneMentions(scene, key) {
 /** 这段场景是不是"单人画面"（写了 solo/1girl/独自 之类）。 */
 function isSoloScene(scene) {
     const t = String(scene || '').toLowerCase();
-    // 只用【强】单人标记。原来还包含 \bonly\b / \b1girl\b / \b1boy\b ——
-    // `Only the master's lower abdomen is visible` 是【取景】说法，不是「画面里只有一个人」；
-    // `1girl` 也常被模型当默认前缀写上。它们会把多人画面误判成单人 →
-    // 跳过多人分句锁 → 只锁一个人 → 那段外观被套到画面里所有人身上
-    // （实测：三人泡澡图，主角被画成狐狸的样子）。
-    return /\bsolo\b|\balone\b|by herself|by himself|独自|一个人|孤身/.test(t);
+    return /\bsolo\b|\b1girl\b|\b1boy\b|\balone\b|by herself|by himself|\bonly\b|独自|一个人|孤身/.test(t);
 }
 
 /**
@@ -1382,14 +1364,7 @@ function firstIndexOf(scene, name) {
 }
 
 function presentCast(scene = '', textOnly = false) {
-    // 手动勾了「出图」栏的【出镜人物】→ 以手动名单为准，【不再】拿场景文字过滤。
-    // 否则「勾了角色、但提示词里只写了动作/镜头」时她会被过滤掉 → 一个外观锁都不拼。
-    const __manual = castOverrideOf().filter(n => subjectExists(n));
-    if (__manual.length) return __manual.slice(0, 6);    // 候选名单必须用「这张图的提示词」算 —— 原来这里调用 sceneCast() 没传 scene，
-    // 于是候选来自最近聊天正文：多人画面里只有常驻的主角被认出来，提示词里明明
-    // 写了名字的那些人（莉莉丝这种）压根不在候选里 → 只有主角拿到外观锁 →
-    // 模型拿主角的脸去填所有人（实测到的「角色混了」）。
-    const list = sceneCast(scene);
+    const list = sceneCast();
     const cur = resolvedName();
     const text = String(scene || '').toLowerCase();
     // 一、场景里写到了谁 → 就只锁谁（其它人一律不进画面）
@@ -1401,18 +1376,7 @@ function presentCast(scene = '', textOnly = false) {
         return ordered.slice(0, 1);
     }
     // 模式二：提到谁就锁谁
-    if (mentioned.length && mode === 'all') {
-        // 诊断：多人场景里到底认出了几个、每个人的匹配键是什么。
-        console.log('[CharImageGen] 锁人诊断 认出=' + mentioned.map(n => displayNameOf(n)).join('、')
-            + ' | 未认出=' + list.filter(n => !mentioned.includes(n)).map(n => displayNameOf(n)).join('、'));
-        for (const n of list) {
-            const ks = castKeysOf(n);
-            console.log('[CharImageGen]   ' + displayNameOf(n) + ' 的匹配键=[' + ks.join(' | ') + ']'
-                + ' 命中=' + ks.some(k => sceneMentions(scene, k)));
-        }
-        console.log('[CharImageGen]   场景前 160 字: ' + String(scene || '').slice(0, 160));
-        return mentioned;
-    }
+    if (mentioned.length && mode === 'all') return mentioned;
     // 单人画面：只保留第一个提到的人 —— 否则会把别人也锁进来，solo 照变成"多了一个人"
     if (mentioned.length && isSoloScene(scene)) return mentioned.slice(0, 1);
     // 提示词写了几个人，就最多锁几个人（多出来的按"在文字里出现的先后"截掉）
@@ -1467,43 +1431,11 @@ function autoLookFromText(scene = '') {
     return tidyPrompt(head + parts.join(', '));
 }
 
-/**
- * 画面主体是「物件/机械」时的判据。
- * 命定之诗的 metaPrompt 强制每张图都以 `A girl named <角色名>` 开头，所以开头那句
- * 不能当「人在画面里」的证据。判据看主体怎么被称呼：主体若是 `It …` / `Its …`
- * 且全篇是机械名词，那就是机甲/构装体在打，不是人。
- * 实测：`A girl named 江白露, her conscious spirit completely merging into an … war
- * construct … The massive construct has heavy engraved armor plates … It grips a heavy
- * ancient bronze halberd …` —— 该出机甲，却因为拼了她的外观+服装画成了她换装拿武器。
- * 人在机械里但确实出镜（`She sits in the cockpit of a giant robot`）不命中：主体是 She。
- */
-const MACHINE_SUBJECT_RE = /\b(mecha|robot|machine|construct|golem|android|automaton|titan|drone|exosuit|warframe|armou?r plates?|visor|gauntlet|thruster|servo)\w*\b/i;
-const OBJECT_SUBJECT_RE = /(?:^|[.!?]\s+)(?:It|Its|The (?:construct|machine|mecha|robot|golem|automaton|armou?r|titan))\b/;
-
 function buildLookBlock(scene = '', textOnly = false) {
     const s = S();
     if (s.mode !== 'free') return '';
-    // 用「摘掉令牌后」的场景认人：令牌 ${"name":"…", "angle":"…"}$ 内部带逗号和引号，
-    // 会破坏 sceneCast 的按段匹配 —— 实测同一条两人场景，带令牌时只认出主角一个人，
-    // 把令牌摘掉就两个都认得出。认不全 = 有人拿不到外观锁 = 串脸。
-    // 一键换装：主体由那一栏选的角色 + 服装唯一决定，不认场景、不看名单、不扫正文。
-    if (forceSubjectOnce) {
-        const fn = forceSubjectOnce;
-        const fid = identityOf(fn);
-        const fsfw = shouldStripNudity(scene) && !nudeChosenOnPurpose(fn);
-        const fraw = outfitTagsFor(fn);
-        const fot = fsfw ? stripNudityTags(fraw) : fraw;
-        const ffuta = isFutaIdentity(fid);
-        const fanat = (!fsfw && ffuta && s.futaOwnership !== false)
-            ? String(s.futaAnatomy || '').trim() : '';
-        if (fid || fot) {
-            return tidyPrompt([ffuta ? '1girl, solo' : '', fid, fanat, fot].filter(Boolean).join(', '));
-        }
-    }
-    const present = presentCast(stripLookTokens(scene), textOnly);          // 场景里真的在场的人（谁都没写 → 只含明确选中的那个）
-    if (!present.length) return '';
-    // 画面主体其实是机械/物件时不锁人（否则机甲图里会凭空多出一个穿衣服的主角）
-    if (scene && MACHINE_SUBJECT_RE.test(scene) && OBJECT_SUBJECT_RE.test(scene)) return '';              // 场上没人认得出来 → 不锁任何人，按提示词画
+    const present = presentCast(scene, textOnly);          // 场景里真的在场的人（谁都没写 → 只含明确选中的那个）
+    if (!present.length) return '';              // 场上没人认得出来 → 不锁任何人，按提示词画
     if (present.length >= 2 && !isSoloScene(scene)) {
         const multi = buildMultiLook(present, scene);   // 画面里有两个人以上 → 走多人锁
         // 拼不出多人锁时【谁也不锁】，绝不退回"单人锁" ——
@@ -1520,10 +1452,7 @@ function buildLookBlock(scene = '', textOnly = false) {
     const anatomy = (!sfw && isFutaIdentity(id) && s.futaOwnership !== false)
         ? String(s.futaAnatomy || '').trim()
         : '';
-    // 单人扶她必须显式锚定「女性身体」：danbooru 里 futanari 是修饰词不是性别，
-    // 只写身份 + penis/testicles，模型很容易整只画成男性。`1girl, solo` 才是硬锚点。
-    const femaleAnchor = isFutaIdentity(id) ? '1girl, solo' : '';
-    return tidyPrompt([femaleAnchor, id, anatomy, ot].filter(Boolean).join(', '));
+    return tidyPrompt([id, anatomy, ot].filter(Boolean).join(', '));
 }
 
 /**
@@ -1539,13 +1468,6 @@ function buildLookBlock(scene = '', textOnly = false) {
  * 只能用这个办法区分"角色出图"和"纯提示词出图"。
  */
 let skipLookOnce = false;
-/**
- * 一键换装的「一次性强制主体」。
- * 那条路的场景只有「镜头 + 补充描述」，里面没有人名 —— 正常认人会一个都认不出、
- * 于是干脆不拼外观锁 ✗ 模型就自己编长相，和选中的角色/服装完全对不上。
- * 置上后只锁这个角色的身份 + 当前服装，不认场景、不看名单、不绑动作分句。
- */
-let forceSubjectOnce = '';
 
 /** 同人角色库面板挂载后的句柄（查「这个角色有没有参考图」要用）。 */
 let fanPanel = null;
@@ -1639,38 +1561,6 @@ function applyFanRefWorkflow() {
     save();
 }
 
-/**
- * 摘掉世界书/metaPrompt 的调用令牌 `${"name":"…", "angle":"…"}$`。
- *
- * 必须先摘：令牌内部带逗号（name / angle / upperBody / lowerBody 之间），
- * 一旦进入按逗号切分的清理流程就会被拆碎，粘在令牌尾巴上的那半句真场景文字
- * 会被当成垃圾碎片一起丢掉。实测（命定之诗 #448）：
- *   原文 `${…魅魔短睡裙…}$. She kneels on the stone floor, her head held firmly downward by …`
- *   终稿 `lillly, her head held firmly downward by …`
- * 「She kneels on the stone floor,」整句消失 —— 而它是模型判断体位的唯一依据，
- * 于是「在主角面前口交」被画成「主角在后面」。令牌只保留 name 字段。
- */
-/**
- * 摘掉世界书/metaPrompt 的调用令牌 `${"name":"…", "angle":"…"}$`。
- *
- * 为什么必须先摘：令牌内部带逗号（name / angle / upperBody / lowerBody 之间），
- * 一旦进入后面按逗号切分的清理流程就会被拆碎，粘在令牌尾巴上的那半句真场景文字
- * 会被当成垃圾碎片一起丢掉。实测（命定之诗 #448）：
- *   原文 `${…魅魔短睡裙…}$. She kneels on the stone floor, her head held firmly downward by …`
- *   终稿 `lillly, her head held firmly downward by …`
- * 「She kneels on the stone floor,」整句消失 —— 而它是模型判断体位的唯一依据。
- *
- * 令牌要**整个丢掉**，不能只保留 name：
- * 正文里本来就有角色名（metaPrompt 强制写 `A girl named 莉莉丝`），再留下令牌的 name
- * 就是同一个名字出现两次，会被逗号流程切成 `lillly, lillly,` 的碎块，并把夹在中间的
- * 词挤掉。实测：
- *   `and a girl named 莉莉丝, ${…}$. 莉莉丝 is pressed down`
- *   → `and a girl, lillly, lillly, is pressed down`（`named` 不见了）
- */
-function stripLookTokens(text) {
-    return String(text ?? '').replace(/\$\{[\s\S]*?\}\$/g, ' ');
-}
-
 function injectLookIntoPrompt(prompt) {
     const cfg = lexSettings();
     const rawBody = String(prompt ?? '').trim();
@@ -1685,7 +1575,7 @@ function injectLookIntoPrompt(prompt) {
     // 词库钩子(lexClean)和名字映射(applyFanNameMap)会按名字补 booru tag，认错就会塞进别人/主角的 tag。
     let body = autoIllustrateMode
         ? rawBody
-        : (cfg.hook ? lexClean(applyFanNameMap(stripLookTokens(rawBody)), { dedupe: false }) : applyFanNameMap(stripLookTokens(rawBody)));
+        : (cfg.hook ? lexClean(applyFanNameMap(rawBody), { dedupe: false }) : applyFanNameMap(rawBody));
     if (wantRating) body = swapRatingTag(body, wantRating);
     // 尺寸：把提示词里的画幅解析出来，真的设成这次生成的分辨率（并去掉那串说明）
     body = applySizeToSt(body);
@@ -2186,10 +2076,6 @@ const LEX_AUTO_FILES = [
     'tags/zh_CN.yaml',
     'tags/group_tags/zh_CN.yaml',
     'tags/danbooru.csv',
-    // 全量表：32.7 万 tag + 分类号 + 热度。danbooru.csv 只是它的一个 10 万条子集，
-    // 但两边各有几千条对方没有的，所以两个都要。有了分类号，那几十万 tag 才能
-    // 按画师/作品/角色/元数据落进现有分类（见 lexicon.js 的 autoBucketTags）。
-    'tags/danbooru_full.csv',
     'tags/danbooru.zh_CN_SFW.csv',
     'tags/danbooru.zh_CN.csv',
     'tags/e621.csv',
@@ -2465,23 +2351,6 @@ function buildUI() {
       <button id="cig-generate" class="cig-btn cig-primary">改写并生成</button>
     </div>
 
-    <div class="cig-row">
-      <button id="cig-prev-lex" class="cig-btn">从词库选词</button>
-      <button id="cig-prev-save" class="cig-btn">存成新服装</button>
-    </div>
-    <div id="cig-prev-box" style="display:none">
-      <div class="cig-row">
-        <select id="cig-prev-cat"></select>
-        <select id="cig-prev-sub"></select>
-      </div>
-      <div id="cig-prev-list" class="cig-lex-all"></div>
-      <div class="cig-row">
-        <button id="cig-prev-prev" class="cig-btn">上一页</button>
-        <button id="cig-prev-next" class="cig-btn">下一页</button>
-        <span id="cig-prev-page" class="cig-hint"></span>
-      </div>
-      <div class="cig-hint">点词追加到下面的「场景描述」；点按钮可收起</div>
-    </div>
     <label class="cig-label" for="cig-preview">场景描述<span class="cig-hint">（身份/服装会自动拼上）</span></label>
     <textarea id="cig-preview" rows="5" placeholder="转换后的提示词会出现在这里"></textarea>
     <button id="cig-generate-raw" class="cig-btn cig-wide">用上面的提示词直接生成</button>
@@ -2640,8 +2509,9 @@ function buildUI() {
           <select id="cig-lex-sub"></select>
         </div>
         <div id="cig-lex-results"></div>
+移除独立按钮
         <div class="cig-row">
-          <button id="cig-lex-random" class="cig-btn">随机 3 个词（环境/动作/画面/镜头）</button>
+          <button id="cig-lex-random" class="cig-btn">随机来 3 个动作</button>
           <button id="cig-lex-clear" class="cig-btn">清空词库</button>
         </div>
         <div id="cig-lex-check"></div>
@@ -3145,10 +3015,7 @@ function buildUI() {
         setStatus('已填入上面的「场景描述」，可以直接改再生成', 'cig-ok');
     }));
     $('#cig-quick-go').on('click', () => withBusy(async () => {
-        // 一键换装独立化：只认这一栏选的角色 + 服装 + 镜头 + 补充描述
-        const picked = String($('#cig-quick-char').val() || '');
-        const me = picked === FOLLOW ? resolvedName() : picked;
-        forceSubjectOnce = (me && (identityOf(me) || outfitTagsFor(me))) ? me : '';
+        const me = resolvedName();
         if (!identityOf(me)) {
             setStatus(`提示：「${isPlayer(me) ? playerLabel() : me || '未选中'}」还没有外观存档，出来长相会很随机`);
         }
@@ -3166,7 +3033,6 @@ function buildUI() {
         const src = st.sources.length ? `　来源：${st.sources.join('、')}` : '';
         const head = lexIsReal()
             ? `已加载 ${st.tags} 个 tag / 中文 ${st.zh} 条 / ${st.groups} 个一级分类`
-                + `　其中自动分类 ${st.auto || 0} 条（归入「其他」${st.rest || 0} 条）`
             : '还没加载真实词库（现在用的是内置兜底词）—— 导入下面的文件后效果才出得来';
         $('#cig-lex-stat').text(head + src + (extra ? `　${extra}` : ''));
     }
@@ -3194,19 +3060,41 @@ function buildUI() {
         }
     }
 
-    function renderLexBrowse() {
-        const top = String($('#cig-lex-cat').val() || '');
-        const sub = String($('#cig-lex-sub').val() || '');
-        const q = String($('#cig-lex-search').val() || '').trim();
+    // 分类浏览带上翻页：按词库本来的分类（11 个中文桶 + 子分类）一页页翻完
+    let lexBrowsePage = 0;
+    const LEX_BROWSE_PAGE = 200;
+
+    function renderLexBrowse(resetPage) {
+        const top = String($("#cig-lex-cat").val() || "");
+        const sub = String($("#cig-lex-sub").val() || "");
+        const q = String($("#cig-lex-search").val() || "").trim();
+        if (resetPage === true) lexBrowsePage = 0;
+        $("#cig-lex-pager").remove();
         if (q) {
-            renderLexResults(lex().search(q, { limit: 40, top, sub }), `词库里没有匹配「${q}」的词`);
+            lexRenderSliced(lex().search(q, { limit: 4000, top, sub }), "词库里没有匹配「" + q + "」的词");
             return;
         }
         if (!top) {
-            renderLexResults([], '上面搜一个词，或选个分类翻一翻');
+            renderLexResults([], "上面搜一个词，或选个分类翻一翻");
             return;
         }
-        renderLexResults(lex().browse(top, sub), '这个分类下没有词');
+        // browse(top, sub) 返回该分类下的【全部】tag
+        lexRenderSliced(lex().browse(top, sub), "这个分类下没有词");
+    }
+
+    /** 结果切成每页 200 条，并在结果区下面放上一页/下一页。 */
+    function lexRenderSliced(list, emptyMsg) {
+        const all = Array.isArray(list) ? list : [];
+        const pages = Math.max(1, Math.ceil(all.length / LEX_BROWSE_PAGE));
+        if (lexBrowsePage >= pages) lexBrowsePage = pages - 1;
+        if (lexBrowsePage < 0) lexBrowsePage = 0;
+        const slice = all.slice(lexBrowsePage * LEX_BROWSE_PAGE, (lexBrowsePage + 1) * LEX_BROWSE_PAGE);
+        renderLexResults(slice, emptyMsg);
+        const $p = $("<div id='cig-lex-pager' class='cig-row'></div>");
+        $p.append($("<button class='cig-btn'>上一页</button>").on("click", () => { lexBrowsePage = Math.max(0, lexBrowsePage - 1); renderLexBrowse(); }));
+        $p.append($("<button class='cig-btn'>下一页</button>").on("click", () => { lexBrowsePage += 1; renderLexBrowse(); }));
+        $p.append($("<span class='cig-hint'></span>").text("　共 " + all.length + " 条　第 " + (lexBrowsePage + 1) + " / " + pages + " 页"));
+        $("#cig-lex-results").after($p);
     }
 
     function renderLexCats() {
@@ -3283,59 +3171,120 @@ function buildUI() {
     let lexSearchTimer = null;
     $('#cig-lex-search').on('input', () => {
         clearTimeout(lexSearchTimer);
-        lexSearchTimer = setTimeout(renderLexBrowse, 180);
+        lexSearchTimer = setTimeout(() => renderLexBrowse(true), 180);
     });
-    $('#cig-lex-cat').on('change', () => { renderLexSubs(); renderLexBrowse(); });
-    $('#cig-lex-sub').on('change', renderLexBrowse);
+    // ---- 全量标签：并进上面的「分类」下拉（多一项「全部标签（全量表）」），结果还是显示在同一个结果区 ----
+    let lexAll = null;        // 全量 tag 数组（按分类号分组）
+    let lexAllPage = 0;
+    const LEX_ALL_PAGE = 200;
+    const LEX_ALL_CAT = '__all__';
+    const LEX_SUBS = [
+        ['数字开头', /^[0-9]/],
+        ['A-C', /^[a-c]/i], ['D-F', /^[d-f]/i], ['G-I', /^[g-i]/i], ['J-L', /^[j-l]/i],
+        ['M-O', /^[m-o]/i], ['P-R', /^[p-r]/i], ['S-U', /^[s-u]/i], ['V-X', /^[v-x]/i],
+        ['Y-Z', /^[y-z]/i], ['其他', /./],
+    ];
 
-    // 「随机 3 个词」：从 环境 / 动作 / 画面 / 镜头 里随机挑 3 个分类，每个分类出一词。
-    //
-    // 故意挑不同分类：3 个词全从「画面」里抽（`monochrome, sketch, blue theme`）拼进
-    // 场景描述没什么意义，一个环境 + 一个动作 + 一个镜头才有用。所以是「先从 4 个分类里
-    // 随机选 3 个，再各抽一词」，而不是从 4 个分类的并集里抽 3 个（那样可能全撞一个分类）。
-    // 另外只认「人工分类」的词：自动落桶的那 30 万条量大但噪声多。
-    const LEX_RANDOM_TOPS = ['环境', '表情动作', '画面', '镜头'];
-
-    function lexRandomPicks(n = 3) {
-        const cats = lex().categories();
-        const pools = LEX_RANDOM_TOPS
-            .map(name => ({ name, cat: cats.find(c => c.name === name) }))
-            .filter(p => p.cat && p.cat.subs.length);
-        if (!pools.length) return [];
-        for (let i = pools.length - 1; i > 0; i--) {          // 打乱分类顺序
-            const j = Math.floor(Math.random() * (i + 1));
-            [pools[i], pools[j]] = [pools[j], pools[i]];
+    async function lexLoadAll() {
+        if (lexAll) return lexAll;
+        for (const name of ['danbooru_full.csv', 'danbooru.csv']) {
+            try {
+                const url = new URL('tags/' + name, import.meta.url).href;
+                const res = await fetch(url, { cache: 'no-cache' });
+                if (!res.ok) continue;
+                const text = await res.text();
+                const arr = text.split(/\r?\n/).map(l => String(l).split(',')[0].trim()).filter(Boolean);
+                if (arr.length) { lexAll = arr; return lexAll; }
+            } catch (e) { /* 换下一个 */ }
         }
-        const out = [];
-        for (const p of pools) {
-            if (out.length >= n) break;
-            // 分类里随机挑个二级分类，再随机抽一个词；
-            // 撞上「整个子分类都是自动落桶、没有人工词」的就重挑（最多 12 次）
-            let got = '';
-            for (let guard = 0; guard < 12 && !got; guard++) {
-                const sub = p.cat.subs[Math.floor(Math.random() * p.cat.subs.length)].name;
-                const t = lex().randomFrom(p.name, sub, 1)[0];
-                const e = t ? lex().lookup(t) : null;
-                // 必须同时满足：是人工分类的词、而且 e.top 真的就是抽的这个一级分类。
-                // 「真的就是」这条不能省 —— 同一个 tag 可能被 YAML 列进多个分组，
-                // browse() 从每个分组都会把它返回，而 e.top 只记最后写入的那个。
-                // 不校验的话会把「反向提示词」里的 lowres / bad anatomy 当成
-                // 环境/画面词抽进正向的场景描述里。
-                if (e && !e.auto && e.top === p.name) got = t;
-            }
-            if (got) out.push({ top: p.name, tag: got });
-        }
-        return out;
+        lexAll = [];
+        return lexAll;
     }
 
+    /** 把「全部标签」这一项挂到分类下拉末尾（下拉一变就补一次）。 */
+    function lexEnsureAllOption() {
+        const $cat = $('#cig-lex-cat');
+        if (!$cat.length) return;
+        if (!$cat.find('option[value="' + LEX_ALL_CAT + '"]').length) {
+        }
+    }
+
+    /** 选中「全部标签」时：子分类给字母分组，结果区显示这一页的 tag。 */
+    function lexRenderAllInto() {
+        const sub = String($('#cig-lex-sub').val() || '');
+        if (!lexAll) return;
+        const rule = (LEX_SUBS.find(s => s[0] === sub) || LEX_SUBS[0])[1];
+        const list = sub === '其他'
+            ? lexAll.filter(t => !/^[0-9a-z]/i.test(t))
+            : (sub ? lexAll.filter(t => rule.test(t)) : lexAll);
+        const pages = Math.max(1, Math.ceil(list.length / LEX_ALL_PAGE));
+        if (lexAllPage >= pages) lexAllPage = pages - 1;
+        const slice = list.slice(lexAllPage * LEX_ALL_PAGE, (lexAllPage + 1) * LEX_ALL_PAGE);
+        const $r = $('#cig-lex-results');
+        $r.empty();
+        $r.append($('<div class="cig-hint"></div>').text('全量标签 ' + lexAll.length + ' 条' + (sub ? '　筛出 ' + list.length + ' 条' : '') + '　点词追加到「场景描述」'));
+        const $wrap = $('<div class="cig-lex-all"></div>');
+        for (const t of slice) $wrap.append($('<button class="cig-btn cig-lex-tag"></button>').text(t).on('click', () => lexInsertTag(t)));
+        if (!slice.length) $wrap.append($('<div class="cig-hint"></div>').text('没有匹配的标签'));
+        $r.append($wrap);
+        const $pager = $('<div class="cig-row"></div>');
+        $pager.append($('<button class="cig-btn">上一页</button>').on('click', () => { lexAllPage = Math.max(0, lexAllPage - 1); lexRenderAllInto(); }));
+        $pager.append($('<button class="cig-btn">下一页</button>').on('click', () => { lexAllPage += 1; lexRenderAllInto(); }));
+        $pager.append($('<span class="cig-hint"></span>').text('　第 ' + (lexAllPage + 1) + ' / ' + pages + ' 页'));
+        $r.append($pager);
+    }
+
+    function lexRenderAll() {
+        const $list = $('#cig-lex-browse-list');
+        const kw = String($('#cig-lex-browse-filter').val() || '').trim().toLowerCase();
+        if (!lexAll) return;
+        if (!lexAllFiltered || lexAllFiltered.kw !== kw) {
+            lexAllFiltered = { kw, list: kw ? lexAll.filter(t => t.toLowerCase().includes(kw)) : lexAll };
+            lexAllPage = 0;
+        }
+        const list = lexAllFiltered.list;
+        const pages = Math.max(1, Math.ceil(list.length / LEX_ALL_PAGE));
+        if (lexAllPage >= pages) lexAllPage = pages - 1;
+        const slice = list.slice(lexAllPage * LEX_ALL_PAGE, (lexAllPage + 1) * LEX_ALL_PAGE);
+        $('#cig-lex-browse-stat').text('共 ' + lexAll.length + ' 条全量标签'
+            + (kw ? '，筛出 ' + list.length + ' 条' : '') + '　（点下面的词就追加到「场景描述」）');
+        $('#cig-lex-browse-page').text('第 ' + (lexAllPage + 1) + ' / ' + pages + ' 页');
+        $list.empty();
+        for (const t of slice) {
+            $list.append($('<button class="cig-btn cig-lex-tag"></button>').text(t).on('click', () => lexInsertTag(t)));
+        }
+        if (!slice.length) $list.append($('<div class="cig-hint"></div>').text('没有匹配的标签'));
+    }
+
+    $('#cig-lex-cat').on('change', () => { renderLexSubs(); renderLexBrowse(true); });
+    // 「全部标签」这一项：挂进分类下拉，选中后子分类给字母分组，结果区显示分页 tag
+    $('#cig-lex-cat').on('mousedown focus click', () => lexEnsureAllOption());
+    $('#cig-lex-cat').on('change', async () => {
+        if (String($('#cig-lex-cat').val()) !== LEX_ALL_CAT) return;      // 普通分类走原来的逻辑
+        const $sub = $('#cig-lex-sub');
+        $sub.empty();
+        for (const [name] of LEX_SUBS) $sub.append($('<option></option>').val(name).text(name));
+        $sub.val(LEX_SUBS[0][0]);
+        $('#cig-lex-results').empty().append($('<div class="cig-hint"></div>').text('正在读全量标签表…'));
+        const list = await lexLoadAll();
+        if (!list.length) { $('#cig-lex-results').empty().append($('<div class="cig-hint"></div>').text('没读到 tags/danbooru_full.csv —— 确认插件目录里有这个文件')); return; }
+        lexAllPage = 0;
+        lexEnsureAllOption();
+        lexRenderAllInto();
+    });
+    $('#cig-lex-sub').on('change', () => { if (String($('#cig-lex-cat').val()) === LEX_ALL_CAT) { lexAllPage = 0; lexRenderAllInto(); } });
+    $('#cig-lex-sub').on('change', () => renderLexBrowse(true));
+
     $('#cig-lex-random').on('click', () => {
-        const picks = lexRandomPicks(3);
-        if (!picks.length) {
-            setStatus('词库里没有可抽的词 —— 先导入 SD-WebUI 的词库文件', 'cig-err');
+        const cat = lex().categories().find(c => c.name === '表情动作');
+        const sub = cat?.subs.find(x => /动作/.test(x.name))?.name || cat?.subs[0]?.name || '';
+        const tags = lex().randomFrom('表情动作', sub, 3);
+        if (!tags.length) {
+            setStatus('词库里没有动作词 —— 先导入 SD-WebUI 的词库文件', 'cig-err');
             return;
         }
-        lexInsertTag(picks.map(p => p.tag).join(', '));
-        setStatus(`随机：${picks.map(p => `${p.top}→${p.tag}`).join('　')}`, 'cig-ok');
+        lexInsertTag(tags.join(', '));
+        setStatus(`随机动作：${tags.join(', ')}`, 'cig-ok');
     });
 
     $('#cig-lex-inject').on('change', function () { s.lexInject = !!this.checked; save(); });
@@ -4331,67 +4280,6 @@ function buildUI() {
         else setStatus(`已入库服装「${res.name}」`, 'cig-ok');
     }));
 
-    // ---- 出图区：从词库选词，直接追加到「场景描述」----
-    let pvPage = 0;
-    const PV_PAGE = 200;
-    function pvAppend(tag) {
-        const $p = $('#cig-preview');
-        const cur = String($p.val() || '').replace(/[,\s]+$/, '');
-        $p.val(cur ? (cur + ', ' + tag) : tag);
-        $('#cig-prev-list .cig-lex-tag').removeClass('cig-on');
-    }
-    function pvFillSubs() {
-        const top = String($('#cig-prev-cat').val() || '');
-        const cat = lex().categories().find(c => c.name === top);
-        const $s = $('#cig-prev-sub');
-        $s.empty();
-        $s.append($('<option></option>').val('').text('全部子分类'));
-        for (const x of (cat ? cat.subs : [])) $s.append($('<option></option>').val(x.name).text(x.name + '（' + x.count + '）'));
-    }
-    function pvRender() {
-        const top = String($('#cig-prev-cat').val() || '');
-        const sub = String($('#cig-prev-sub').val() || '');
-        if (!top) { $('#cig-prev-list').empty().append($('<div class="cig-hint"></div>').text('先选一个分类')); return; }
-        const all = lex().browse(top, sub) || [];
-        const pages = Math.max(1, Math.ceil(all.length / PV_PAGE));
-        if (pvPage >= pages) pvPage = pages - 1;
-        const slice = all.slice(pvPage * PV_PAGE, (pvPage + 1) * PV_PAGE);
-        const $l = $('#cig-prev-list');
-        $l.empty();
-        for (const w of slice) {
-            const txt = String(w && w.key ? w.key : w);
-            $l.append($('<button class="cig-btn cig-lex-tag"></button>').text(txt).on('click', () => pvAppend(txt)));
-        }
-        if (!slice.length) $l.append($('<div class="cig-hint"></div>').text('这个分类下没有词'));
-        $('#cig-prev-page').text('　共 ' + all.length + ' 条　第 ' + (pvPage + 1) + ' / ' + pages + ' 页');
-    }
-    $('#cig-prev-lex').on('click', () => {
-        const $b = $('#cig-prev-box');
-        if ($b.is(':visible')) { $b.hide(); return; }
-        $b.show();
-        const $c = $('#cig-prev-cat');
-        if (!$c.find('option').length) {
-            for (const c of lex().categories()) $c.append($('<option></option>').val(c.name).text(c.name + '（' + c.count + '）'));
-            pvFillSubs();
-        }
-        pvPage = 0;
-        pvRender();
-    });
-    $('#cig-prev-cat').on('change', () => { pvFillSubs(); pvPage = 0; pvRender(); });
-    $('#cig-prev-sub').on('change', () => { pvPage = 0; pvRender(); });
-    $('#cig-prev-prev').on('click', () => { pvPage = Math.max(0, pvPage - 1); pvRender(); });
-    $('#cig-prev-next').on('click', () => { pvPage += 1; pvRender(); });
-    $('#cig-prev-save').on('click', () => {
-        const txt = String($('#cig-preview').val() || '').trim();
-        if (!txt) { setStatus('场景描述是空的，没什么可存', 'cig-err'); return; }
-        const nm = prompt('给这套衣服起个名字：', '自定义服装 ' + new Date().toLocaleTimeString());
-        if (!nm) return;
-        const res = addOutfit(String(nm).trim(), txt, '手动');
-        if (!res) { setStatus('内容为空，没存', 'cig-err'); return; }
-        s.currentOutfit = res.name;
-        save(); renderOutfit();
-        setStatus('已存成服装「' + res.name + '」并选中它', 'cig-ok');
-    });
     $('#cig-convert').on('click', () => withBusy(async () => {
         const raw = $('#cig-input').val();
         s.lastInput = raw;
