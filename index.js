@@ -2459,7 +2459,7 @@ function buildUI() {
             <button id="cig-cloth-next" class="cig-btn">下一页</button>
             <span id="cig-cloth-page" class="cig-hint"></span>
           </div>
-          <div class="cig-hint">显示中文便于找；点一下会把它的英文 tag 追加到服装框（提示词要用英文）</div>
+          <div class="cig-hint">显示中文便于找；点一下把英文 tag 追加到【新建一套服装】那个框（提示词要用英文）</div>
         </div>
         <select id="cig-outfit-base"></select>
         <label class="cig-check"><input id="cig-outfit-force" type="checkbox" /> 强制新建分类（忽略「太像」判定）</label>
@@ -3676,7 +3676,8 @@ function buildUI() {
     let clothPage = 0;
     const CLOTH_PAGE = 200;
     function clothAppend(tag) {
-        const $o = $("#cig-outfit");
+        // 词要进【新建一套服装】那个框（下面那个），不是上面"选中的服装"框
+        const $o = $("#cig-outfit-new").length ? $("#cig-outfit-new") : $("#cig-outfit");
         const cur = String($o.val() || "").replace(/[,\s]+$/, "");
         $o.val(cur ? (cur + ", " + tag) : tag);
     }
