@@ -2438,6 +2438,22 @@ function buildUI() {
         <textarea id="cig-outfit" rows="3" placeholder="white summer dress, thighhighs, brown loafers"></textarea>
         <input id="cig-outfit-name" type="text" placeholder="服装名（必填，例如：白色夏日连衣裙）" />
         <input id="cig-outfit-src" type="text" placeholder="来源（可选，例如：剧情·胡桃 / 同人库·原神 / 手动）" />
+        <div class="cig-row">
+          <button id="cig-cloth-open" class="cig-btn">查看词库里的服饰</button>
+          <button id="cig-cloth-clear" class="cig-btn">清空服装框</button>
+        </div>
+        <div id="cig-cloth-box" style="display:none">
+          <div class="cig-row">
+            <select id="cig-cloth-sub"></select>
+          </div>
+          <div id="cig-cloth-list" class="cig-lex-all"></div>
+          <div class="cig-row">
+            <button id="cig-cloth-prev" class="cig-btn">上一页</button>
+            <button id="cig-cloth-next" class="cig-btn">下一页</button>
+            <span id="cig-cloth-page" class="cig-hint"></span>
+          </div>
+          <div class="cig-hint">点词追加到下面的「服装」框，攒好之后填个名字点「保存到服装库」就建档了</div>
+        </div>
         <select id="cig-outfit-base"></select>
         <label class="cig-check"><input id="cig-outfit-force" type="checkbox" /> 强制新建分类（忽略「太像」判定）</label>
         <div class="cig-row">
@@ -3641,6 +3657,56 @@ function buildUI() {
         save();
     });
     try { const fixed = inferOutfitSources(); if (fixed) setStatus('已给 ' + fixed + ' 套老服装补上来源标签', 'cig-ok'); } catch {}
+    // ---- 服装建档：从词库的「服饰」分类挑词，直接进服装框 ----
+    let clothPage = 0;
+    const CLOTH_PAGE = 200;
+    function clothAppend(tag) {
+        const $o = $("#cig-outfit");
+        const cur = String($o.val() || "").replace(/[,\s]+$/, "");
+        $o.val(cur ? (cur + ", " + tag) : tag);
+    }
+    function clothCats() {
+        const cats = lex().categories();
+        const cloth = cats.find(c => c.name === "服饰");
+        return cloth || cats[0] || { name: "", subs: [] };
+    }
+    function clothFillSubs() {
+        const $s = $("#cig-cloth-sub");
+        const keep = String($s.val() || "");
+        $s.empty();
+        $s.append($("<option></option>").val("").text("全部（" + clothCats().name + "）"));
+        for (const x of (clothCats().subs || [])) $s.append($("<option></option>").val(x.name).text(x.name + "（" + x.count + "）"));
+        if (keep) $s.val(keep);
+    }
+    function clothRender() {
+        const top = clothCats().name;
+        const sub = String($("#cig-cloth-sub").val() || "");
+        const all = top ? (lex().browse(top, sub) || []) : [];
+        const pages = Math.max(1, Math.ceil(all.length / CLOTH_PAGE));
+        if (clothPage >= pages) clothPage = pages - 1;
+        if (clothPage < 0) clothPage = 0;
+        const slice = all.slice(clothPage * CLOTH_PAGE, (clothPage + 1) * CLOTH_PAGE);
+        const $l = $("#cig-cloth-list");
+        $l.empty();
+        for (const w of slice) {
+            const txt = String(w && w.key ? w.key : w);
+            $l.append($("<button class=\"cig-btn cig-lex-tag\"></button>").text(txt).on("click", () => clothAppend(txt)));
+        }
+        if (!slice.length) $l.append($("<div class=\"cig-hint\"></div>").text("没读到服饰词 —— 先在词库区块点「从插件 tags/ 加载」"));
+        $("#cig-cloth-page").text("　共 " + all.length + " 条　第 " + (clothPage + 1) + " / " + pages + " 页");
+    }
+    $("#cig-cloth-open").on("click", () => {
+        const $b = $("#cig-cloth-box");
+        if ($b.is(":visible")) { $b.hide(); return; }
+        $b.show();
+        clothFillSubs();
+        clothPage = 0;
+        clothRender();
+    });
+    $("#cig-cloth-sub").on("change", () => { clothPage = 0; clothRender(); });
+    $("#cig-cloth-prev").on("click", () => { clothPage = Math.max(0, clothPage - 1); clothRender(); });
+    $("#cig-cloth-next").on("click", () => { clothPage += 1; clothRender(); });
+    $("#cig-cloth-clear").on("click", () => { $("#cig-outfit").val(""); setStatus("服装框已清空", "cig-ok"); });
     $('#cig-outfit-autogroup').on('click', () => {
         const changed = autoGroupOutfits();
         renderOutfit();
