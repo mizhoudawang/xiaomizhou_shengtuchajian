@@ -1,4 +1,11 @@
-import { USER_FANCHARS } from './fanchars_user.js';
+// 你自己的角色数据放 fanchars_user.js（不进公开仓库）。缺了也不影响插件加载。
+let USER_FANCHARS = [];
+try {
+    ({ USER_FANCHARS } = await import('./fanchars_user.js'));
+    console.log('[CharImageGen] 已载入自定义角色 ' + (USER_FANCHARS?.length || 0) + ' 个');
+} catch (e) {
+    USER_FANCHARS = [];   // 文件不存在 → 空数组，插件照常跑
+}
 
 /**
  * 同人角色库（fan art character library）

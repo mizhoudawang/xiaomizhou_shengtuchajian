@@ -16,3 +16,7 @@ _rolltest/
 # 系统
 Thumbs.db
 .DS_Store
+
+# 你自己的角色数据（不进公开仓库；插件缺了它也能跑）
+fanchars_user.js
+
