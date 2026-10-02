@@ -2510,6 +2510,19 @@ function buildUI() {
         </div>
         <div id="cig-lex-results"></div>
         <div class="cig-row">
+          <button id="cig-lex-browse" class="cig-btn">浏览全部标签</button>
+          <input id="cig-lex-browse-filter" type="text" placeholder="在这份全量里筛（可选）" />
+        </div>
+        <div id="cig-lex-browse-box" style="display:none">
+          <div id="cig-lex-browse-stat" class="cig-hint"></div>
+          <div id="cig-lex-browse-list" class="cig-lex-all"></div>
+          <div class="cig-row">
+            <button id="cig-lex-browse-prev" class="cig-btn">上一页</button>
+            <button id="cig-lex-browse-next" class="cig-btn">下一页</button>
+            <span id="cig-lex-browse-page" class="cig-hint"></span>
+          </div>
+        </div>
+        <div class="cig-row">
           <button id="cig-lex-random" class="cig-btn">随机来 3 个动作</button>
           <button id="cig-lex-clear" class="cig-btn">清空词库</button>
         </div>
@@ -3150,6 +3163,70 @@ function buildUI() {
         clearTimeout(lexSearchTimer);
         lexSearchTimer = setTimeout(renderLexBrowse, 180);
     });
+    // ---- 浏览全部标签（直接读插件 tags/ 里的全量表，不受词库模块内部结构限制）----
+    let lexAll = null;        // 全量 tag 数组
+    let lexAllPage = 0;
+    let lexAllFiltered = null;
+    const LEX_ALL_PAGE = 200;
+
+    async function lexLoadAll() {
+        if (lexAll) return lexAll;
+        const names = ['danbooru_full.csv', 'danbooru.csv'];     // 优先全量版，其次 10 万条那版
+        for (const name of names) {
+            try {
+                const url = new URL('tags/' + name, import.meta.url).href;
+                const res = await fetch(url, { cache: 'no-cache' });
+                if (!res.ok) continue;
+                const text = await res.text();
+                lexAll = text.split(/\r?\n/).map(l => String(l).split(',')[0].trim()).filter(Boolean);
+                if (lexAll.length) return lexAll;
+            } catch (e) { /* 换下一个 */ }
+        }
+        lexAll = [];
+        return lexAll;
+    }
+
+    function lexRenderAll() {
+        const $list = $('#cig-lex-browse-list');
+        const kw = String($('#cig-lex-browse-filter').val() || '').trim().toLowerCase();
+        if (!lexAll) return;
+        if (!lexAllFiltered || lexAllFiltered.kw !== kw) {
+            lexAllFiltered = { kw, list: kw ? lexAll.filter(t => t.toLowerCase().includes(kw)) : lexAll };
+            lexAllPage = 0;
+        }
+        const list = lexAllFiltered.list;
+        const pages = Math.max(1, Math.ceil(list.length / LEX_ALL_PAGE));
+        if (lexAllPage >= pages) lexAllPage = pages - 1;
+        const slice = list.slice(lexAllPage * LEX_ALL_PAGE, (lexAllPage + 1) * LEX_ALL_PAGE);
+        $('#cig-lex-browse-stat').text('共 ' + lexAll.length + ' 条全量标签'
+            + (kw ? '，筛出 ' + list.length + ' 条' : '') + '　（点下面的词就追加到「场景描述」）');
+        $('#cig-lex-browse-page').text('第 ' + (lexAllPage + 1) + ' / ' + pages + ' 页');
+        $list.empty();
+        for (const t of slice) {
+            $list.append($('<button class="cig-btn cig-lex-tag"></button>').text(t).on('click', () => lexInsertTag(t)));
+        }
+        if (!slice.length) $list.append($('<div class="cig-hint"></div>').text('没有匹配的标签'));
+    }
+
+    $('#cig-lex-browse').on('click', async () => {
+        const $box = $('#cig-lex-browse-box');
+        if ($box.is(':visible')) { $box.hide(); return; }
+        $box.show();
+        if (!lexAll) {
+            $('#cig-lex-browse-stat').text('正在读全量标签表…');
+            const list = await lexLoadAll();
+            if (!list.length) { $('#cig-lex-browse-stat').text('没读到 tags/danbooru_full.csv —— 先点「从插件 tags/ 加载」或确认文件在插件目录里'); return; }
+        }
+        lexRenderAll();
+    });
+    let lexAllTimer = null;
+    $('#cig-lex-browse-filter').on('input', () => {
+        clearTimeout(lexAllTimer);
+        lexAllTimer = setTimeout(lexRenderAll, 200);
+    });
+    $('#cig-lex-browse-prev').on('click', () => { lexAllPage = Math.max(0, lexAllPage - 1); lexRenderAll(); });
+    $('#cig-lex-browse-next').on('click', () => { lexAllPage += 1; lexRenderAll(); });
+
     $('#cig-lex-cat').on('change', () => { renderLexSubs(); renderLexBrowse(); });
     $('#cig-lex-sub').on('change', renderLexBrowse);
 
