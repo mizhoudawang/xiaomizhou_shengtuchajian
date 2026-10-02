@@ -1,3 +1,5 @@
+import { USER_FANCHARS } from './fanchars_user.js';
+
 /**
  * 同人角色库（fan art character library）
  * ------------------------------------------------------------------
@@ -22,7 +24,7 @@
  * 想加角色：照抄一条改内容即可；想加整个系列，新开一个数组追加进去。
  */
 
-export const FANCHARS = [
+const BUILTIN_FANCHARS = [
     {
         id: 'hu_tao', zh: '胡桃', en: 'Hu Tao', jp: '胡桃', series: '原神', seriesTag: 'genshin impact',
         booru: 'hu tao (genshin impact)', rating: 'sfw',
@@ -872,6 +874,22 @@ export const FANCHARS = [
 ];
 
 /** 系列列表（面板的系列筛选下拉用）。 */
+/**
+ * 最终的同人角色库 = 用户整理的大库（3877 条）+ 内置 94 条。
+ *   · 按 booru tag 去重（同一条目保留用户那份 —— 那是较新、较全的整理版）
+ *   · 丢掉占位符 booru（`【booru 存疑…】` 这类不是真 tag，塞进提示词就是垃圾）
+ */
+const __seenBooru = new Set();
+export const FANCHARS = [...(USER_FANCHARS || []), ...BUILTIN_FANCHARS].filter((c) => {
+    const b = String(c && c.booru || '').trim();
+    if (!b) return false;
+    if (/存疑|无标签页|待补|待定|TODO|未知/.test(b)) return false;
+    const k = b.toLowerCase();
+    if (__seenBooru.has(k)) return false;
+    __seenBooru.add(k);
+    return true;
+});
+
 export const FANCHAR_SERIES = [...new Set(FANCHARS.map(c => c.series))];
 
 /** 把一条角色记录拼成插件用的身份串：booru tag + 作品 tag + 外观 tag。 */
