@@ -3206,7 +3206,6 @@ function buildUI() {
         const $cat = $('#cig-lex-cat');
         if (!$cat.length) return;
         if (!$cat.find('option[value="' + LEX_ALL_CAT + '"]').length) {
-            $cat.append($('<option></option>').val(LEX_ALL_CAT).text('全部标签（全量表' + (lexAll ? ' ' + lexAll.length + ' 条' : '') + '）'));
         }
     }
 
