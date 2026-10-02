@@ -2509,19 +2509,7 @@ function buildUI() {
           <select id="cig-lex-sub"></select>
         </div>
         <div id="cig-lex-results"></div>
-        <div class="cig-row">
-          <button id="cig-lex-browse" class="cig-btn">浏览全部标签</button>
-          <input id="cig-lex-browse-filter" type="text" placeholder="在这份全量里筛（可选）" />
-        </div>
-        <div id="cig-lex-browse-box" style="display:none">
-          <div id="cig-lex-browse-stat" class="cig-hint"></div>
-          <div id="cig-lex-browse-list" class="cig-lex-all"></div>
-          <div class="cig-row">
-            <button id="cig-lex-browse-prev" class="cig-btn">上一页</button>
-            <button id="cig-lex-browse-next" class="cig-btn">下一页</button>
-            <span id="cig-lex-browse-page" class="cig-hint"></span>
-          </div>
-        </div>
+移除独立按钮
         <div class="cig-row">
           <button id="cig-lex-random" class="cig-btn">随机来 3 个动作</button>
           <button id="cig-lex-clear" class="cig-btn">清空词库</button>
@@ -3163,27 +3151,66 @@ function buildUI() {
         clearTimeout(lexSearchTimer);
         lexSearchTimer = setTimeout(renderLexBrowse, 180);
     });
-    // ---- 浏览全部标签（直接读插件 tags/ 里的全量表，不受词库模块内部结构限制）----
-    let lexAll = null;        // 全量 tag 数组
+    // ---- 全量标签：并进上面的「分类」下拉（多一项「全部标签（全量表）」），结果还是显示在同一个结果区 ----
+    let lexAll = null;        // 全量 tag 数组（按分类号分组）
     let lexAllPage = 0;
-    let lexAllFiltered = null;
     const LEX_ALL_PAGE = 200;
+    const LEX_ALL_CAT = '__all__';
+    const LEX_SUBS = [
+        ['数字开头', /^[0-9]/],
+        ['A-C', /^[a-c]/i], ['D-F', /^[d-f]/i], ['G-I', /^[g-i]/i], ['J-L', /^[j-l]/i],
+        ['M-O', /^[m-o]/i], ['P-R', /^[p-r]/i], ['S-U', /^[s-u]/i], ['V-X', /^[v-x]/i],
+        ['Y-Z', /^[y-z]/i], ['其他', /./],
+    ];
 
     async function lexLoadAll() {
         if (lexAll) return lexAll;
-        const names = ['danbooru_full.csv', 'danbooru.csv'];     // 优先全量版，其次 10 万条那版
-        for (const name of names) {
+        for (const name of ['danbooru_full.csv', 'danbooru.csv']) {
             try {
                 const url = new URL('tags/' + name, import.meta.url).href;
                 const res = await fetch(url, { cache: 'no-cache' });
                 if (!res.ok) continue;
                 const text = await res.text();
-                lexAll = text.split(/\r?\n/).map(l => String(l).split(',')[0].trim()).filter(Boolean);
-                if (lexAll.length) return lexAll;
+                const arr = text.split(/\r?\n/).map(l => String(l).split(',')[0].trim()).filter(Boolean);
+                if (arr.length) { lexAll = arr; return lexAll; }
             } catch (e) { /* 换下一个 */ }
         }
         lexAll = [];
         return lexAll;
+    }
+
+    /** 把「全部标签」这一项挂到分类下拉末尾（下拉一变就补一次）。 */
+    function lexEnsureAllOption() {
+        const $cat = $('#cig-lex-cat');
+        if (!$cat.length) return;
+        if (!$cat.find('option[value="' + LEX_ALL_CAT + '"]').length) {
+            $cat.append($('<option></option>').val(LEX_ALL_CAT).text('全部标签（全量表' + (lexAll ? ' ' + lexAll.length + ' 条' : '') + '）'));
+        }
+    }
+
+    /** 选中「全部标签」时：子分类给字母分组，结果区显示这一页的 tag。 */
+    function lexRenderAllInto() {
+        const sub = String($('#cig-lex-sub').val() || '');
+        if (!lexAll) return;
+        const rule = (LEX_SUBS.find(s => s[0] === sub) || LEX_SUBS[0])[1];
+        const list = sub === '其他'
+            ? lexAll.filter(t => !/^[0-9a-z]/i.test(t))
+            : (sub ? lexAll.filter(t => rule.test(t)) : lexAll);
+        const pages = Math.max(1, Math.ceil(list.length / LEX_ALL_PAGE));
+        if (lexAllPage >= pages) lexAllPage = pages - 1;
+        const slice = list.slice(lexAllPage * LEX_ALL_PAGE, (lexAllPage + 1) * LEX_ALL_PAGE);
+        const $r = $('#cig-lex-results');
+        $r.empty();
+        $r.append($('<div class="cig-hint"></div>').text('全量标签 ' + lexAll.length + ' 条' + (sub ? '　筛出 ' + list.length + ' 条' : '') + '　点词追加到「场景描述」'));
+        const $wrap = $('<div class="cig-lex-all"></div>');
+        for (const t of slice) $wrap.append($('<button class="cig-btn cig-lex-tag"></button>').text(t).on('click', () => lexInsertTag(t)));
+        if (!slice.length) $wrap.append($('<div class="cig-hint"></div>').text('没有匹配的标签'));
+        $r.append($wrap);
+        const $pager = $('<div class="cig-row"></div>');
+        $pager.append($('<button class="cig-btn">上一页</button>').on('click', () => { lexAllPage = Math.max(0, lexAllPage - 1); lexRenderAllInto(); }));
+        $pager.append($('<button class="cig-btn">下一页</button>').on('click', () => { lexAllPage += 1; lexRenderAllInto(); }));
+        $pager.append($('<span class="cig-hint"></span>').text('　第 ' + (lexAllPage + 1) + ' / ' + pages + ' 页'));
+        $r.append($pager);
     }
 
     function lexRenderAll() {
@@ -3208,26 +3235,23 @@ function buildUI() {
         if (!slice.length) $list.append($('<div class="cig-hint"></div>').text('没有匹配的标签'));
     }
 
-    $('#cig-lex-browse').on('click', async () => {
-        const $box = $('#cig-lex-browse-box');
-        if ($box.is(':visible')) { $box.hide(); return; }
-        $box.show();
-        if (!lexAll) {
-            $('#cig-lex-browse-stat').text('正在读全量标签表…');
-            const list = await lexLoadAll();
-            if (!list.length) { $('#cig-lex-browse-stat').text('没读到 tags/danbooru_full.csv —— 先点「从插件 tags/ 加载」或确认文件在插件目录里'); return; }
-        }
-        lexRenderAll();
-    });
-    let lexAllTimer = null;
-    $('#cig-lex-browse-filter').on('input', () => {
-        clearTimeout(lexAllTimer);
-        lexAllTimer = setTimeout(lexRenderAll, 200);
-    });
-    $('#cig-lex-browse-prev').on('click', () => { lexAllPage = Math.max(0, lexAllPage - 1); lexRenderAll(); });
-    $('#cig-lex-browse-next').on('click', () => { lexAllPage += 1; lexRenderAll(); });
-
     $('#cig-lex-cat').on('change', () => { renderLexSubs(); renderLexBrowse(); });
+    // 「全部标签」这一项：挂进分类下拉，选中后子分类给字母分组，结果区显示分页 tag
+    $('#cig-lex-cat').on('mousedown focus click', () => lexEnsureAllOption());
+    $('#cig-lex-cat').on('change', async () => {
+        if (String($('#cig-lex-cat').val()) !== LEX_ALL_CAT) return;      // 普通分类走原来的逻辑
+        const $sub = $('#cig-lex-sub');
+        $sub.empty();
+        for (const [name] of LEX_SUBS) $sub.append($('<option></option>').val(name).text(name));
+        $sub.val(LEX_SUBS[0][0]);
+        $('#cig-lex-results').empty().append($('<div class="cig-hint"></div>').text('正在读全量标签表…'));
+        const list = await lexLoadAll();
+        if (!list.length) { $('#cig-lex-results').empty().append($('<div class="cig-hint"></div>').text('没读到 tags/danbooru_full.csv —— 确认插件目录里有这个文件')); return; }
+        lexAllPage = 0;
+        lexEnsureAllOption();
+        lexRenderAllInto();
+    });
+    $('#cig-lex-sub').on('change', () => { if (String($('#cig-lex-cat').val()) === LEX_ALL_CAT) { lexAllPage = 0; lexRenderAllInto(); } });
     $('#cig-lex-sub').on('change', renderLexBrowse);
 
     $('#cig-lex-random').on('click', () => {
