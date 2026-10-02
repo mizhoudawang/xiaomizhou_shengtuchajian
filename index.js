@@ -3239,7 +3239,7 @@ function buildUI() {
         const $r = $('#cig-lex-results');
         $r.empty();
         $r.append($('<div class="cig-hint"></div>').text('全量标签 ' + lexAll.length + ' 条' + (sub ? '　筛出 ' + list.length + ' 条' : '') + '　点词追加到「场景描述」'));
-        const $wrap = $('<div class="cig-lex-all"></div>');
+        const $wrap = $('<div class="cig-lex-all"></div>');   // 结果由 renderLexResults 渲染
         for (const t of slice) $wrap.append($('<button class="cig-btn cig-lex-tag"></button>').text(t).on('click', () => lexInsertTag(t)));
         if (!slice.length) $wrap.append($('<div class="cig-hint"></div>').text('没有匹配的标签'));
         $r.append($wrap);
@@ -3657,6 +3657,13 @@ function buildUI() {
         save();
     });
     try { const fixed = inferOutfitSources(); if (fixed) setStatus('已给 ' + fixed + ' 套老服装补上来源标签', 'cig-ok'); } catch {}
+    /** 词库返回的可能是字符串，也可能是对象（字段名各版本不同）—— 统一取出要显示的英文词。 */
+    function lexWordText(w) {
+        if (w === null || w === undefined) return "";
+        if (typeof w === "string") return w;
+        if (typeof w === "number") return String(w);
+        return String(w.key || w.tag || w.name || w.canon || w.text || w.word || w.zh || "");
+    }
     // ---- 服装建档：从词库的「服饰」分类挑词，直接进服装框 ----
     let clothPage = 0;
     const CLOTH_PAGE = 200;
@@ -3689,7 +3696,8 @@ function buildUI() {
         const $l = $("#cig-cloth-list");
         $l.empty();
         for (const w of slice) {
-            const txt = String(w && w.key ? w.key : w);
+            const txt = lexWordText(w);
+            if (!txt) continue;
             $l.append($("<button class=\"cig-btn cig-lex-tag\"></button>").text(txt).on("click", () => clothAppend(txt)));
         }
         if (!slice.length) $l.append($("<div class=\"cig-hint\"></div>").text("没读到服饰词 —— 先在词库区块点「从插件 tags/ 加载」"));
