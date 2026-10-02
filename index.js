@@ -3662,7 +3662,8 @@ function buildUI() {
         if (w === null || w === undefined) return "";
         if (typeof w === "string") return w;
         if (typeof w === "number") return String(w);
-        return String(w.key || w.tag || w.name || w.canon || w.text || w.word || w.zh || "");
+        // 词库项的真实字段是 k（英文）/ zh（中文）/ n（热度）/ top / sub
+        return String(w.k || w.key || w.tag || w.name || w.canon || w.text || w.word || w.zh || "");
     }
     // ---- 服装建档：从词库的「服饰」分类挑词，直接进服装框 ----
     let clothPage = 0;
