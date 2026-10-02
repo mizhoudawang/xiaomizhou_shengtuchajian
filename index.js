@@ -2459,7 +2459,7 @@ function buildUI() {
             <button id="cig-cloth-next" class="cig-btn">下一页</button>
             <span id="cig-cloth-page" class="cig-hint"></span>
           </div>
-          <div class="cig-hint">点词追加到下面的「服装」框，攒好之后填个名字点「保存到服装库」就建档了</div>
+          <div class="cig-hint">显示中文便于找；点一下会把它的英文 tag 追加到服装框（提示词要用英文）</div>
         </div>
         <select id="cig-outfit-base"></select>
         <label class="cig-check"><input id="cig-outfit-force" type="checkbox" /> 强制新建分类（忽略「太像」判定）</label>
@@ -3704,9 +3704,12 @@ function buildUI() {
         const $l = $("#cig-cloth-list");
         $l.empty();
         for (const w of slice) {
-            const txt = lexWordText(w);
-            if (!txt) continue;
-            $l.append($("<button class=\"cig-btn cig-lex-tag\"></button>").text(txt).on("click", () => clothAppend(txt)));
+            // 显示中文（好找），点进去写英文 tag（提示词要用英文）
+            const en = String((w && (w.k || w.key || w.tag || w.name)) || (typeof w === "string" ? w : "")).trim();
+            const zh = String((w && w.zh) || "").trim();
+            const label = zh ? (en && en !== zh ? (zh + " · " + en) : zh) : en;
+            if (!label) continue;
+            $l.append($("<button class=\"cig-btn cig-lex-tag\"></button>").text(label).on("click", () => clothAppend(en || label)));
         }
         if (!slice.length) $l.append($("<div class=\"cig-hint\"></div>").text("没读到服饰词 —— 先在词库区块点「从插件 tags/ 加载」"));
         $("#cig-cloth-page").text("　共 " + all.length + " 条　第 " + (clothPage + 1) + " / " + pages + " 页");
