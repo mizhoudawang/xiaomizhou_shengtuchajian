@@ -2438,6 +2438,13 @@ function buildUI() {
         <textarea id="cig-outfit" rows="3" placeholder="white summer dress, thighhighs, brown loafers"></textarea>
         <input id="cig-outfit-name" type="text" placeholder="服装名（必填，例如：白色夏日连衣裙）" />
         <input id="cig-outfit-src" type="text" placeholder="来源（可选，例如：剧情·胡桃 / 同人库·原神 / 手动）" />
+        <div class="cig-label">新建一套服装<span class="cig-hint">（独立输入，不用先删掉上面选的）</span></div>
+        <textarea id="cig-outfit-new" rows="3" placeholder="white dress, white thighhighs, brown loafers"></textarea>
+        <div class="cig-row">
+          <button id="cig-outfit-new-save" class="cig-btn cig-primary">保存为新服装</button>
+          <button id="cig-outfit-new-clear" class="cig-btn">清空</button>
+        </div>
+        <div id="cig-outfit-new-msg" class="cig-hint"></div>
         <div class="cig-row">
           <button id="cig-cloth-open" class="cig-btn">查看词库里的服饰</button>
           <button id="cig-cloth-clear" class="cig-btn">清空服装框</button>
@@ -3716,6 +3723,22 @@ function buildUI() {
     $("#cig-cloth-prev").on("click", () => { clothPage = Math.max(0, clothPage - 1); clothRender(); });
     $("#cig-cloth-next").on("click", () => { clothPage += 1; clothRender(); });
     $("#cig-cloth-clear").on("click", () => { $("#cig-outfit").val(""); setStatus("服装框已清空", "cig-ok"); });
+    // ---- 新建服装：独立输入框，不受上面「选中的服装」影响 ----
+    $("#cig-outfit-new-save").on("click", () => {
+        const name = String($("#cig-outfit-name").val() || "").trim();
+        const tags = tidyPrompt($("#cig-outfit-new").val());
+        const src = String($("#cig-outfit-src").val() || "").trim() || "手动";
+        const say = (msg, k) => { $("#cig-outfit-new-msg").text(msg); setStatus(msg, k || "cig-ok"); };
+        if (!name) { say("先在上面填个「服装名」", "cig-err"); return; }
+        if (!tags) { say("新建服装的标签是空的", "cig-err"); return; }
+        const res = addOutfit(name, tags, src);
+        if (!res) { say("内容为空，没存", "cig-err"); return; }
+        s.currentOutfit = res.name;
+        save(); renderOutfit();
+        $("#cig-outfit-new").val("");
+        say("已存成服装「" + res.name + "」并选中它");
+    });
+    $("#cig-outfit-new-clear").on("click", () => { $("#cig-outfit-new").val(""); $("#cig-outfit-new-msg").text(""); });
     $('#cig-outfit-autogroup').on('click', () => {
         const changed = autoGroupOutfits();
         renderOutfit();
