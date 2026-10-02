@@ -3214,6 +3214,8 @@ function buildUI() {
     }
 
     function lexRenderAll() {
+        const $list = $('#cig-lex-browse-list');
+        const kw = String($('#cig-lex-browse-filter').val() || '').trim().toLowerCase();
         if (!lexAll) return;
         if (!lexAllFiltered || lexAllFiltered.kw !== kw) {
             lexAllFiltered = { kw, list: kw ? lexAll.filter(t => t.toLowerCase().includes(kw)) : lexAll };
@@ -3223,7 +3225,9 @@ function buildUI() {
         const pages = Math.max(1, Math.ceil(list.length / LEX_ALL_PAGE));
         if (lexAllPage >= pages) lexAllPage = pages - 1;
         const slice = list.slice(lexAllPage * LEX_ALL_PAGE, (lexAllPage + 1) * LEX_ALL_PAGE);
+        $('#cig-lex-browse-stat').text('共 ' + lexAll.length + ' 条全量标签'
             + (kw ? '，筛出 ' + list.length + ' 条' : '') + '　（点下面的词就追加到「场景描述」）');
+        $('#cig-lex-browse-page').text('第 ' + (lexAllPage + 1) + ' / ' + pages + ' 页');
         $list.empty();
         for (const t of slice) {
             $list.append($('<button class="cig-btn cig-lex-tag"></button>').text(t).on('click', () => lexInsertTag(t)));
