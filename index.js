@@ -3060,19 +3060,41 @@ function buildUI() {
         }
     }
 
-    function renderLexBrowse() {
-        const top = String($('#cig-lex-cat').val() || '');
-        const sub = String($('#cig-lex-sub').val() || '');
-        const q = String($('#cig-lex-search').val() || '').trim();
+    // 分类浏览带上翻页：按词库本来的分类（11 个中文桶 + 子分类）一页页翻完
+    let lexBrowsePage = 0;
+    const LEX_BROWSE_PAGE = 200;
+
+    function renderLexBrowse(resetPage) {
+        const top = String($("#cig-lex-cat").val() || "");
+        const sub = String($("#cig-lex-sub").val() || "");
+        const q = String($("#cig-lex-search").val() || "").trim();
+        if (resetPage === true) lexBrowsePage = 0;
+        $("#cig-lex-pager").remove();
         if (q) {
-            renderLexResults(lex().search(q, { limit: 40, top, sub }), `词库里没有匹配「${q}」的词`);
+            lexRenderSliced(lex().search(q, { limit: 4000, top, sub }), "词库里没有匹配「" + q + "」的词");
             return;
         }
         if (!top) {
-            renderLexResults([], '上面搜一个词，或选个分类翻一翻');
+            renderLexResults([], "上面搜一个词，或选个分类翻一翻");
             return;
         }
-        renderLexResults(lex().browse(top, sub), '这个分类下没有词');
+        // browse(top, sub) 返回该分类下的【全部】tag
+        lexRenderSliced(lex().browse(top, sub), "这个分类下没有词");
+    }
+
+    /** 结果切成每页 200 条，并在结果区下面放上一页/下一页。 */
+    function lexRenderSliced(list, emptyMsg) {
+        const all = Array.isArray(list) ? list : [];
+        const pages = Math.max(1, Math.ceil(all.length / LEX_BROWSE_PAGE));
+        if (lexBrowsePage >= pages) lexBrowsePage = pages - 1;
+        if (lexBrowsePage < 0) lexBrowsePage = 0;
+        const slice = all.slice(lexBrowsePage * LEX_BROWSE_PAGE, (lexBrowsePage + 1) * LEX_BROWSE_PAGE);
+        renderLexResults(slice, emptyMsg);
+        const $p = $("<div id='cig-lex-pager' class='cig-row'></div>");
+        $p.append($("<button class='cig-btn'>上一页</button>").on("click", () => { lexBrowsePage = Math.max(0, lexBrowsePage - 1); renderLexBrowse(); }));
+        $p.append($("<button class='cig-btn'>下一页</button>").on("click", () => { lexBrowsePage += 1; renderLexBrowse(); }));
+        $p.append($("<span class='cig-hint'></span>").text("　共 " + all.length + " 条　第 " + (lexBrowsePage + 1) + " / " + pages + " 页"));
+        $("#cig-lex-results").after($p);
     }
 
     function renderLexCats() {
@@ -3149,7 +3171,7 @@ function buildUI() {
     let lexSearchTimer = null;
     $('#cig-lex-search').on('input', () => {
         clearTimeout(lexSearchTimer);
-        lexSearchTimer = setTimeout(renderLexBrowse, 180);
+        lexSearchTimer = setTimeout(() => renderLexBrowse(true), 180);
     });
     // ---- 全量标签：并进上面的「分类」下拉（多一项「全部标签（全量表）」），结果还是显示在同一个结果区 ----
     let lexAll = null;        // 全量 tag 数组（按分类号分组）
@@ -3235,7 +3257,7 @@ function buildUI() {
         if (!slice.length) $list.append($('<div class="cig-hint"></div>').text('没有匹配的标签'));
     }
 
-    $('#cig-lex-cat').on('change', () => { renderLexSubs(); renderLexBrowse(); });
+    $('#cig-lex-cat').on('change', () => { renderLexSubs(); renderLexBrowse(true); });
     // 「全部标签」这一项：挂进分类下拉，选中后子分类给字母分组，结果区显示分页 tag
     $('#cig-lex-cat').on('mousedown focus click', () => lexEnsureAllOption());
     $('#cig-lex-cat').on('change', async () => {
@@ -3252,7 +3274,7 @@ function buildUI() {
         lexRenderAllInto();
     });
     $('#cig-lex-sub').on('change', () => { if (String($('#cig-lex-cat').val()) === LEX_ALL_CAT) { lexAllPage = 0; lexRenderAllInto(); } });
-    $('#cig-lex-sub').on('change', renderLexBrowse);
+    $('#cig-lex-sub').on('change', () => renderLexBrowse(true));
 
     $('#cig-lex-random').on('click', () => {
         const cat = lex().categories().find(c => c.name === '表情动作');
