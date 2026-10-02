@@ -2459,7 +2459,7 @@ function buildUI() {
             <button id="cig-cloth-next" class="cig-btn">下一页</button>
             <span id="cig-cloth-page" class="cig-hint"></span>
           </div>
-          <div class="cig-hint">显示中文便于找；点一下把英文 tag 追加到【新建一套服装】那个框（提示词要用英文）</div>
+          <div class="cig-hint">点一下：英文 tag 进【新建一套服装】框，中文名填到「服装名」，来源写「词库」</div>
         </div>
         <select id="cig-outfit-base"></select>
         <label class="cig-check"><input id="cig-outfit-force" type="checkbox" /> 强制新建分类（忽略「太像」判定）</label>
@@ -3675,11 +3675,19 @@ function buildUI() {
     // ---- 服装建档：从词库的「服饰」分类挑词，直接进服装框 ----
     let clothPage = 0;
     const CLOTH_PAGE = 200;
-    function clothAppend(tag) {
-        // 词要进【新建一套服装】那个框（下面那个），不是上面"选中的服装"框
+    function clothAppend(tag, zh) {
+        // 英文 tag 进【新建一套服装】框；中文名顺手填到「服装名」；来源写「词库」
         const $o = $("#cig-outfit-new").length ? $("#cig-outfit-new") : $("#cig-outfit");
         const cur = String($o.val() || "").replace(/[,\s]+$/, "");
         $o.val(cur ? (cur + ", " + tag) : tag);
+        const $n = $("#cig-outfit-name");
+        if ($n.length && zh) {
+            const nm = String($n.val() || "").trim();
+            if (!nm) $n.val(zh);
+            else if (!nm.includes(zh)) $n.val(nm + "·" + zh);
+        }
+        const $s = $("#cig-outfit-src");
+        if ($s.length && !String($s.val() || "").trim()) $s.val("词库");
     }
     function clothCats() {
         const cats = lex().categories();
@@ -3710,7 +3718,7 @@ function buildUI() {
             const zh = String((w && w.zh) || "").trim();
             const label = zh ? (en && en !== zh ? (zh + " · " + en) : zh) : en;
             if (!label) continue;
-            $l.append($("<button class=\"cig-btn cig-lex-tag\"></button>").text(label).on("click", () => clothAppend(en || label)));
+            $l.append($("<button class=\"cig-btn cig-lex-tag\"></button>").text(label).on("click", () => clothAppend(en || label, zh)));
         }
         if (!slice.length) $l.append($("<div class=\"cig-hint\"></div>").text("没读到服饰词 —— 先在词库区块点「从插件 tags/ 加载」"));
         $("#cig-cloth-page").text("　共 " + all.length + " 条　第 " + (clothPage + 1) + " / " + pages + " 页");
