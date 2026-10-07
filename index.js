@@ -1725,7 +1725,14 @@ function applySizeToSt(text) {
         h = spec.h;
         from = 'prompt';
     } else {
-        const c = clampSize(s.fixedWidth, s.fixedHeight, s.maxMegapixels) || { w: 832, h: 1216 };
+        // 提示词里没有画幅时，按内容自己判断（一键换装以前一律退成 832x1216 竖图）
+        const _t = String(text || "").toLowerCase();
+        let _fw = s.fixedWidth, _fh = s.fixedHeight;
+        if (/character sheet|reference sheet|multiple views|三视图|立绘/.test(_t)) { _fw = 1216; _fh = 832; }
+        else if (/upper body|portrait|bust|close-?up|headshot|half body|半身|特写/.test(_t)) { _fw = 1024; _fh = 1024; }
+        else if (/full body|standing|from behind|全身/.test(_t)) { _fw = 832; _fh = 1216; }
+        else { _fw = 1024; _fh = 1024; }
+        const c = clampSize(_fw, _fh, s.maxMegapixels) || { w: 1024, h: 1024 };
         w = c.w;
         h = c.h;
         from = 'fixed';
