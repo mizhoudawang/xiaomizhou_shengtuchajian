@@ -3743,6 +3743,22 @@ function buildUI() {
     $("#cig-cloth-prev").on("click", () => { clothPage = Math.max(0, clothPage - 1); clothRender(); });
     $("#cig-cloth-next").on("click", () => { clothPage += 1; clothRender(); });
     $("#cig-cloth-clear").on("click", () => { $("#cig-outfit").val(""); setStatus("服装框已清空", "cig-ok"); });
+    // ---- 【保护】自动整理分类后，把 同人库·/自建· 的服装还原成各自的分类（不参与合并）----
+    $("#cig-outfit-autogroup").on("click", () => {
+        setTimeout(() => {
+            let k = 0;
+            for (const [nm, o] of Object.entries(s.outfits || {})) {
+                if (!/^(同人库|自建)·/.test(String(o && o.src || ""))) continue;
+                const own = String(nm).replace(/·\d+$/, "");
+                if (String(o.base || "") !== own) { o.base = own; k++; }
+            }
+            if (k) {
+                save();
+                renderOutfit();
+                setStatus("自动整理后：同人/自建服装保持各自分类（" + k + " 套未被合并）", "cig-ok");
+            }
+        }, 400);
+    });
     // ---- 新建服装：独立输入框，不受上面「选中的服装」影响 ----
     $("#cig-outfit-new-save").on("click", () => {
         const name = String($("#cig-outfit-name").val() || "").trim();
