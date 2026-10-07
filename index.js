@@ -900,6 +900,14 @@ function uniqueOutfitName(base) {
  * 返回 { name, reused, grouped? }。
  */
 function addOutfit(name, tags, src = '手动') {
+    const _s = S();
+    let _nm = String(name || '').trim();
+    // 【保护】同人库·X / 自建·X 的原装不允许被剧情登记改写：剧情另存一套「X·剧情」
+    const _prev = _s.outfits ? _s.outfits[_nm] : null;
+    if (_prev && /^(同人库|自建)·/.test(String(_prev.src || '')) && /^剧情·/.test(String(src))) {
+        _nm = _nm + '·剧情';
+    }
+    name = _nm;
     const s = S();
     const wanted = String(name || '').trim() || '未命名服装';
     const body = tidyPrompt(tags);
